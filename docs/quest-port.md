@@ -1,5 +1,12 @@
 # WiiCompiled VR on Meta Quest (standalone Android)
 
+> [!IMPORTANT]
+> **Mario Party 9 fork note:** this design reference describes the upstream
+> Mario Kart Wii Quest build. Platform glue (Gradle, OpenXR, SDL3) is shared
+> with this fork's MP9 port, but all game-specific content (recipes,
+> instrumentation, cameras, input profiles) targets Mario Kart Wii and does
+> **not** apply to Mario Party 9. See the top-level README for the MP9 status.
+
 This document is the design and build reference for the native Quest build. It
 complements `OPENXR.md`, which remains the specification for the presentation
 policy, the virtual screen, the first-person camera and frame interpolation:

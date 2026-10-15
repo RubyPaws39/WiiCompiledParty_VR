@@ -73,12 +73,19 @@ RVZ/ISO/WBFS, translated objects) and fails if any is found.
 Working: APK build/audit/install, OpenXR session + passthrough, verified
 private-package import, native OS interrupt/RTC/SRAM/SI/audio-device/memory/
 IPC/IOS56/video/GX/Aurora/DVD-FST/scheduler/drive-inquiry/WPAD/KPAD/AI/AX-DSP
-startup, on-device encoder unit tests.
+startup, on-device encoder unit tests, texture upload path. The original
+Mario Party 9 **"Creating save data" screen has been displayed in the
+headset**, and later builds reach the title screen with working controller
+input into the menu flow.
 
-Not working yet: actual board/minigame scenes, immersive MP9 cameras,
-complete motion input verification, dynamic REL module loading, world-fixed
-menus with recenter/calibration, online lobbies/profiles/stats, and the
-public end-to-end BYO-ROM generation flow.
+Not working yet: save completion, title-menu progression, minigames, fully
+verified physical VR controls, immersive VR cameras, complete dynamic REL
+module coverage, world-fixed menus with recenter/calibration, online
+lobbies/profiles/stats, and the public end-to-end BYO-ROM generation flow. **This is not a playable port yet.**
+
+The distinction matters: code present and unit-tested on-device is not the
+same as verified in the headset. Anything above marked verified was seen
+running on real Quest 3 hardware; everything else remains work in progress.
 
 Crashes are deliberately loud instead of quietly swallowed. Bug reports should
 include the boot log and the crash snapshot from the app's

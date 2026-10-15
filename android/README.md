@@ -1,5 +1,15 @@
 # WiiCompiled VR for Meta Quest (Android)
 
+> [!IMPORTANT]
+> **Mario Party 9 fork note:** this document describes the upstream Mario Kart
+> Wii / Retro Rewind workflow (`RMCP01`, `Build-Quest*.ps1`, on-headset
+> toolchain). It does **not** apply to the Mario Party 9 (`SSQE01`) port in
+> this fork, whose build is orchestrated separately with `-Pmp9DiscManifest`
+> and a locally built private game package (see the top-level README).
+> Upstream instructions below are retained for reference only; do not treat
+> Mario Kart features (Retro Rewind, on-headset builds, WheelWizard) as
+> available for Mario Party 9.
+
 Standalone Android/OpenXR build of the Mario Kart Wii recompilation for Quest 1,
 Quest 2, Quest 3, Quest 3S and Quest Pro. The full design, build walkthrough and current
 status live in [docs/quest-port.md](../docs/quest-port.md); this directory only

@@ -1,5 +1,12 @@
 # WheelWizard VR integration validation
 
+> [!IMPORTANT]
+> **Mario Party 9 fork note:** this log records upstream Windows/WheelWizard
+> validation (PAL `RMCP01`, Retro Rewind) from 2026-09-09. None of it was
+> performed for Mario Party 9 and none of it transfers. MP9 validation is
+> tracked separately (on-device boot logs and unit tests). Retained for
+> reference only.
+
 Validated locally on Windows x64 on 2026-09-09. These are release candidates; public release
 acceptance is not complete.
 

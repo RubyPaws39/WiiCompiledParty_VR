@@ -1,5 +1,12 @@
 # Windows VR distribution
 
+> [!IMPORTANT]
+> **Mario Party 9 fork note:** this document describes upstream Windows
+> distribution (setup EXE, WheelWizard, PAL `RMCP01`). It does **not** apply
+> to this fork's Mario Party 9 Quest port: there is no Windows installer, no
+> WheelWizard integration, and no public release of any kind yet. Retained
+> for reference only.
+
 Distribute only `WiiCompiled-Setup.exe` and its checksum from
 [iChris4/Wiicompiled_VR](https://github.com/iChris4/Wiicompiled_VR/releases), and
 `WheelWizardVRWindows.exe` from [iChris4/WheelWizard_VR](https://github.com/iChris4/WheelWizard_VR/releases).
