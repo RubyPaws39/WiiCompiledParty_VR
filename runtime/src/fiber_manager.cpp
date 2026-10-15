@@ -1,5 +1,7 @@
-extern "C" void OSExitThread_HLE_801aa0f0(struct CpuContext*);
 #include "fiber_manager.h"
+#if defined(MKW_GAME_MP9)
+extern "C" void OSExitThread_HLE_801aa0f0(CpuContext*);
+#endif
 #if defined(__ANDROID__)
 #include "aurora_events.h"
 #endif
@@ -706,8 +708,6 @@ void GuestFiberManager::FiberProc(void* param)
         // A normal entry return is an OSExitThread, not a yield to the outer
         // scheduler host stack. The main OSThread can be asleep on another
         // custom-task continuation; select a runnable guest before resuming it.
-        std::printf("[mp9-exit] thread=%08X entry=%08X result=%08X\n",
-                    guestThreadAddr, entryPoint, cpu->gpr[3]);
         OSExitThread_HLE_801aa0f0(cpu);
         throw std::runtime_error("Terminated MP9 OSThread resumed after OSExitThread");
 #endif

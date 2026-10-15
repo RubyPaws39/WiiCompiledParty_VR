@@ -1,8 +1,4 @@
 #include "memory.h"
-#if defined(__ANDROID__) && defined(MKW_GAME_MP9)
-#include <unwind.h>
-#include <dlfcn.h>
-#endif
 
 #include <algorithm>
 #include <array>
@@ -418,23 +414,6 @@ Region& ResolveRegion(uint32_t address, size_t length) {
         if (symbolsReady && SymFromAddr(process, addressValue, &displacement, symbol))
             std::cerr << " " << symbol->Name << "+0x" << displacement;
         std::cerr << std::dec << std::endl;
-    }
-#endif
-#if defined(__ANDROID__) && defined(MKW_GAME_MP9)
-    static bool traced = false;
-    if (!traced) {
-        traced = true;
-        unsigned frame = 0;
-        _Unwind_Backtrace([](_Unwind_Context* context, void* argument) {
-            auto& index = *static_cast<unsigned*>(argument);
-            const uintptr_t pc = _Unwind_GetIP(context);
-            Dl_info info{};
-            dladdr(reinterpret_cast<void*>(pc), &info);
-            std::printf("[mp9-native-fault] #%u offset=%zx symbol=%s\n", index++,
-                        pc - reinterpret_cast<uintptr_t>(info.dli_fbase),
-                        info.dli_sname ? info.dli_sname : "?");
-            return index < 32 ? _URC_NO_REASON : _URC_END_OF_STACK;
-        }, &frame);
     }
 #endif
     std::cerr.flush();

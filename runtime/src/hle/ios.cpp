@@ -36,13 +36,6 @@ void SetIosReturn(CpuContext* ctx, int32_t result)
 // callback, then report "queued successfully" (0) to the caller.
 void CompleteAsync(CpuContext* ctx, uint32_t callback, int32_t result, uint32_t callbackArg)
 {
-#if defined(MKW_GAME_MP9)
-    static unsigned traceCount = 0;
-    if (callback != 0x801884E0 && traceCount++ < 256) {
-        std::printf("[mp9-ios] lr=%08X r3=%08X r4=%08X result=%d cb=%08X arg=%08X\n",
-                    ctx->lr, ctx->gpr[3], ctx->gpr[4], result, callback, callbackArg);
-    }
-#endif
     NandQueueIosCallback(callback, result, callbackArg);
     SetIosReturn(ctx, 0);
 }

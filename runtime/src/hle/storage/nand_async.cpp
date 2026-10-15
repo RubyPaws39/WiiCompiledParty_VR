@@ -93,16 +93,8 @@ bool NandProcessPendingCallbacks(CpuContext* cpu, int maxToProcess) {
             cb = g_pendingNandCallbacks.front();
             g_pendingNandCallbacks.pop_front();
         }
-#if defined(MKW_GAME_MP9)
-        static unsigned traceCount = 0;
-        const bool trace = cb.callbackPtr != 0x801884E0 && traceCount++ < 256;
-        if (trace) std::printf("[mp9-ios] dispatch cb=%08X result=%d arg=%08X scheduler=%u\n",
-                               cb.callbackPtr, cb.result, cb.commandBlock, Memory::Read32(0x8026E740));
-#endif
         DispatchNandCallback(cpu, cb.callbackPtr, cb.result, cb.commandBlock);
-#if defined(MKW_GAME_MP9)
-        if (trace) std::printf("[mp9-ios] returned cb=%08X\n", cb.callbackPtr);
-#endif
+
         ++processed;
     }
     return processed != 0;
