@@ -31,21 +31,39 @@ constexpr uint32_t kMailReset = kTaskMailToDsp | 0x0002u;
 constexpr size_t kResamplingCoefficientCount = 0x800;
 constexpr uint32_t kMailContinue = kTaskMailToDsp | 0x0003u;
 constexpr uint32_t kAxSamplesPerFrame = 96u;
+#if defined(MKW_GAME_MP9)
+constexpr uint32_t kAxDspTaskAddr = 0x802D7880u;
+constexpr uint32_t kDspInitializedAddr = 0x8026EBC8u;
+constexpr uint32_t kDspAssertPendingAddr = 0x8026EBD0u;
+constexpr uint32_t kDspAssertTaskAddr = 0x8026EBD4u;
+constexpr uint32_t kDspTaskListTailAddr = 0x8026EBD8u;
+constexpr uint32_t kDspCurrentTaskAddr = 0x8026EBDCu;
+constexpr uint32_t kDspFirstTaskAddr = 0x8026EBE0u;
+constexpr uint32_t kDspRunningTaskAddr = 0x8026EBE4u;
+constexpr uint32_t kAxIramMmemAddr = 0x8025FE40u;
+constexpr uint32_t kAxDramMmemAddr = 0x802D78E0u;
+constexpr uint32_t kAxInitCallback = 0x801A8030u;
+constexpr uint32_t kAxResumeCallback = 0x801A8040u;
+constexpr uint32_t kAxDoneCallback = 0x801A80A0u;
+constexpr uint32_t kAxRequestCallback = 0x801A80B0u;
+#else
 constexpr uint32_t kAxDspTaskAddr = 0x802F81A0u;
 constexpr uint32_t kDspInitializedAddr = 0x80386608u;
 constexpr uint32_t kDspAssertPendingAddr = 0x80386610u;
 constexpr uint32_t kDspAssertTaskAddr = 0x80386614u;
+constexpr uint32_t kDspTaskListTailAddr = 0x80386618u;
 constexpr uint32_t kDspCurrentTaskAddr = 0x8038661Cu;
 constexpr uint32_t kDspFirstTaskAddr = 0x80386620u;
 constexpr uint32_t kDspRunningTaskAddr = 0x80386624u;
 constexpr uint32_t kAxIramMmemAddr = 0x8027F820u;
 constexpr uint32_t kAxDramMmemAddr = 0x802F8200u;
-constexpr uint32_t kAxDramLength = 64u;
-constexpr uint32_t kAxDramDspAddr = 3282u;
 constexpr uint32_t kAxInitCallback = 0x80126948u;
 constexpr uint32_t kAxResumeCallback = 0x80126954u;
 constexpr uint32_t kAxDoneCallback = 0x801269A8u;
 constexpr uint32_t kAxRequestCallback = 0x801269B8u;
+#endif
+constexpr uint32_t kAxDramLength = 64u;
+constexpr uint32_t kAxDramDspAddr = 3282u;
 
 extern uint32_t g_axTaskPtr;
 

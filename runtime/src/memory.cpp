@@ -1,4 +1,8 @@
 #include "memory.h"
+#if defined(__ANDROID__) && defined(MKW_GAME_MP9)
+#include <unwind.h>
+#include <dlfcn.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -416,6 +420,23 @@ Region& ResolveRegion(uint32_t address, size_t length) {
         std::cerr << std::dec << std::endl;
     }
 #endif
+#if defined(__ANDROID__) && defined(MKW_GAME_MP9)
+    static bool traced = false;
+    if (!traced) {
+        traced = true;
+        unsigned frame = 0;
+        _Unwind_Backtrace([](_Unwind_Context* context, void* argument) {
+            auto& index = *static_cast<unsigned*>(argument);
+            const uintptr_t pc = _Unwind_GetIP(context);
+            Dl_info info{};
+            dladdr(reinterpret_cast<void*>(pc), &info);
+            std::printf("[mp9-native-fault] #%u offset=%zx symbol=%s\n", index++,
+                        pc - reinterpret_cast<uintptr_t>(info.dli_fbase),
+                        info.dli_sname ? info.dli_sname : "?");
+            return index < 32 ? _URC_NO_REASON : _URC_END_OF_STACK;
+        }, &frame);
+    }
+#endif
     std::cerr.flush();
     throw Memory::AccessViolation(address, length, "no mapped region");
 }
@@ -483,6 +504,12 @@ Memory::AccessViolation::AccessViolation(uint32_t address, size_t length, std::s
           std::ostringstream oss;
           oss << "Memory access violation at 0x" << std::hex << std::uppercase << address
               << " (+0x" << length << ") :: " << reason;
+          // Capture while the guest context is still in scope. Stack unwinding
+          // restores the previous TLS context before the outer error reporter.
+          if (const auto* cpu = TryGetCpuContext()) {
+              oss << " guestLR=0x" << cpu->lr << " SP=0x" << cpu->gpr[1]
+                  << " r3=0x" << cpu->gpr[3] << " r4=0x" << cpu->gpr[4];
+          }
           return oss.str();
       }()),
       address_(address),

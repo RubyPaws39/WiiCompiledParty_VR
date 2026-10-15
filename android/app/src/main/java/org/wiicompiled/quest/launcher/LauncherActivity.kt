@@ -19,6 +19,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import java.io.File
 import org.wiicompiled.quest.BuildConfig
 import org.wiicompiled.quest.GameLibrary
 import org.wiicompiled.quest.GameProfile
@@ -802,9 +803,16 @@ class LauncherActivity : Activity() {
     private fun importDroppedPackage() {
         // Not while the game reads its files; the package is still there at the next resume.
         if (GameSetup.isRunning || isGameRunning()) return
-        val dropped = GameStorage.importDirectory(this)
-            .listFiles { file -> file.isFile && file.name.endsWith(".wcgame", ignoreCase = true) }
-            ?.maxByOrNull { it.lastModified() }
+        // Debugger transport when Horizon OS blocks adb writes to app-specific external storage.
+        // This still runs the normal package/disc verifier; release builds use the normal importer.
+        val importDirectories = mutableListOf(GameStorage.importDirectory(this))
+        if (BuildConfig.DEBUG && BuildConfig.DISC_GAME_ID == "SSQE01") {
+            importDirectories += File(filesDir, "Import")
+        }
+        val dropped = importDirectories.flatMap { directory ->
+            directory.listFiles { file -> file.isFile && file.name.endsWith(".wcgame", ignoreCase = true) }
+                ?.toList().orEmpty()
+        }.maxByOrNull { it.lastModified() }
             ?: return
         val identity = "${dropped.absolutePath}:${dropped.length()}:${dropped.lastModified()}"
         val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)

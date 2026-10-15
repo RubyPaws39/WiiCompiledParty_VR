@@ -72,6 +72,8 @@ void Switch(Handle target)
     SwitchToFiber(target);
 }
 
+Handle Current() { return GetCurrentFiber(); }
+
 #elif defined(__APPLE__) && defined(__aarch64__)
 
 namespace {
@@ -157,6 +159,8 @@ void Switch(Handle target)
     mkw_co_switch(&destination->savedStackPointer, &source->savedStackPointer);
     g_current = source;
 }
+
+Handle Current() { return g_current; }
 
 #elif defined(__linux__)
 
@@ -264,6 +268,8 @@ void Switch(Handle target)
     co_switch(destination->native);
     g_current = source;
 }
+
+Handle Current() { return g_current; }
 
 #endif
 

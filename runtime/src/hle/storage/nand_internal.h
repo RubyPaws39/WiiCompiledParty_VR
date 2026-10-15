@@ -43,8 +43,13 @@
 
 // Mario Kart Wii Title ID
 namespace {
+#if defined(MKW_GAME_MP9)
+constexpr uint32_t kNandTitleIdHi = 0x00010000;
+constexpr uint32_t kNandTitleIdLo = 0x53535145; // Owned SSQE01 TMD.
+#else
 constexpr uint32_t kNandTitleIdHi = 0x00010004;
 constexpr uint32_t kNandTitleIdLo = 0x524D4350; // "RMCP" fallback
+#endif
 } // anonymous namespace
 
 // ============================================================================

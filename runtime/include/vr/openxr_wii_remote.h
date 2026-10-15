@@ -360,6 +360,21 @@ inline uint32_t RemoteButtons(const HandInputs& left, const HandInputs& right) n
             hold |= bit;
         }
     };
+#if defined(MKW_GAME_MP9)
+    // MP9 uses a bare remote. Both Touch controllers supply its buttons;
+    // left Y remains the VR settings panel and right stick click recenters.
+    press(right.primary, kButtonA);
+    press(right.trigger > kPressThreshold, kButtonB);
+    press(left.primary, kButtonOne);
+    press(right.secondary, kButtonTwo);
+    press(left.menu || left.thumbstick_click, kButtonPlus);
+    press(left.trigger > kPressThreshold, kButtonMinus);
+    press(left.squeeze > kPressThreshold && right.squeeze > kPressThreshold, kButtonHome);
+    press(left.stick_x < -kPressThreshold, kButtonLeft);
+    press(left.stick_x > kPressThreshold, kButtonRight);
+    press(left.stick_y > kPressThreshold, kButtonUp);
+    press(left.stick_y < -kPressThreshold, kButtonDown);
+#else
     press(right.primary, kButtonA);
     press(right.trigger > kPressThreshold, kButtonB);
     press(right.secondary, kButtonC);
@@ -367,6 +382,7 @@ inline uint32_t RemoteButtons(const HandInputs& left, const HandInputs& right) n
     press(right.stick_y < -kPressThreshold, kButtonTwo);
     press(left.primary || left.menu, kButtonPlus);
     press(left.trigger > kPressThreshold, kButtonZ);
+#endif
     return hold;
 }
 

@@ -152,7 +152,7 @@ object GamePackageImport {
             !manifest.optString("dolSha256").equals(BuildConfig.DISC_DOL_SHA256, ignoreCase = true) ||
             !manifest.optString("relSha256").equals(BuildConfig.DISC_REL_SHA256, ignoreCase = true)
         ) {
-            return "This game file was not built from the supported clean PAL Mario Kart Wii (${BuildConfig.DISC_GAME_ID})."
+            return "This game file was not built from the supported disc revision (${BuildConfig.DISC_GAME_ID})."
         }
         if (manifest.optString("kitFingerprint") != GameLibrary.kitFingerprint(context)) {
             return "This game file was built for a different version of this app. Build it again against the version installed on the headset."

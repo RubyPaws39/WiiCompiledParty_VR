@@ -21,10 +21,17 @@ namespace {
 constexpr uint32_t kDefaultSampleRate = 32000u;
 constexpr uint32_t kAudioChannels = 2u;
 constexpr uint32_t kBytesPerSample = 2u;
+#if defined(MKW_GAME_MP9)
+constexpr uint32_t kAIInitializedAddr = 0x8026EA40u;
+constexpr uint32_t kAICallbackBusyAddr = 0x8026EA44u;
+constexpr uint32_t kAICallbackStackSwitchAddr = 0x8026EA74u;
+constexpr uint32_t kAIDmaCallbackAddr = 0x8026EA78u;
+#else
 constexpr uint32_t kAIInitializedAddr = 0x80386448u;
 constexpr uint32_t kAICallbackBusyAddr = 0x8038644Cu;
 constexpr uint32_t kAICallbackStackSwitchAddr = 0x8038647Cu;
 constexpr uint32_t kAIDmaCallbackAddr = 0x80386480u;
+#endif
 
 // Max completed 3 ms DMA blocks delivered per tick. Draining several at once catches up
 // backlog from a long frame without letting a large stall spiral into an unbounded loop.

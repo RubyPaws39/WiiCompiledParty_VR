@@ -2633,8 +2633,14 @@ void Draw() noexcept {
 }
 
 bool StartupScreenVisible() noexcept {
+#if defined(MKW_GAME_MP9)
+    // The cover is dismissed by Mario Kart's strap-scene hook. MP9 runs its
+    // own strap/title scenes and must not wait on an unrelated game's hook.
+    return false;
+#else
     return !g_strapInputAccepted.load(std::memory_order_acquire) ||
            g_presentedFrame < g_startupDismissFrame.load(std::memory_order_relaxed);
+#endif
 }
 
 void NotifyStrapInputAccepted() noexcept {

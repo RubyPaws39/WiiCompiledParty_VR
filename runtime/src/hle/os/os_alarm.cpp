@@ -11,11 +11,19 @@
 #include "ppc_runtime.h"
 #include "runtime_log.h"
 #include "hle/net/network.h"
-#include "generated/RuntimeConfig.h"
+#include "RuntimeConfig.h"
 #include "os_internal.h"
 
+#if defined(MKW_GAME_MP9)
+// Hash-matched SSQE01 symbols: __OSTimeToSystemTime and InsertAlarm.
+extern "C" void func_80187860(CpuContext* ctx);
+extern "C" void func_8017D520(CpuContext* ctx);
+#define func_801AADE0 func_80187860
+#define func_801A0620 func_8017D520
+#else
 extern "C" void func_801AADE0(CpuContext* ctx);
 extern "C" void func_801A0620(CpuContext* ctx);
+#endif
 
 // ============================================================================
 // Alarm queue helpers

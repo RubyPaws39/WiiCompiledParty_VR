@@ -765,6 +765,12 @@ PPC_NATIVE_OVERRIDE_VOID(80170cbc, GX__GetTexObjLODAll_80170cbc, (uint32_t oa, u
 extern "C" void GX__InitTlutObj_80170f80(uint32_t oa, uint32_t da, uint32_t f, uint32_t e) {
     std::lock_guard<std::mutex> guard(g_tlutObjMutex); TlutObjMeta& meta = GetTlutObjMeta(oa);
     meta.dataAddr=CanonicalizeGxMainRamAddress(da); meta.format=f; meta.entries=(u16)e; meta.dirty=false;
+#if defined(MKW_GAME_MP9)
+    // Preserve the original SDK descriptor: NW4R copies palette objects.
+    Memory::Write32(oa, (f & 3u) << 10);
+    Memory::Write32(oa + 4, 0x64000000u | ((meta.dataAddr >> 5) & 0x00ffffffu));
+    Memory::Write16(oa + 8, static_cast<uint16_t>(e));
+#endif
     // The aurora object is built by the GX thread on the next GXLoadTlut from
     // this meta; a bad descriptor loads an empty object there instead of
     // aurora reading entries*2 bytes off an unvalidated pointer.
@@ -781,6 +787,23 @@ extern "C" void GX__LoadTlut_80170fa8(uint32_t oa, uint32_t tl) {
     GxTlutLoad load{};
     load.objAddr = oa;
     load.tlut = tl;
+#if defined(MKW_GAME_MP9)
+    // Serialized/copied guest TLUTs have no host-side address registration.
+    // Decode the owned SDK's 12-byte layout; existing validation bounds the
+    // palette before any upload. Never substitute data for an invalid object.
+    if (Memory::Contains(oa, 12)) {
+        const uint32_t formatWord = Memory::Read32(oa);
+        const uint32_t imageWord = Memory::Read32(oa + 4);
+        if ((imageWord >> 24) == 0x64u) {
+            TlutObjMeta& meta = GetTlutObjMeta(oa);
+            const uint32_t data = CanonicalizeGxMainRamAddress((imageWord & 0x00ffffffu) << 5);
+            const uint16_t entries = Memory::Read16(oa + 8);
+            const uint32_t format = (formatWord >> 10) & 3u;
+            meta.dirty |= meta.dataAddr != data || meta.entries != entries || meta.format != format;
+            meta.dataAddr = data; meta.entries = entries; meta.format = format;
+        }
+    }
+#endif
     auto metaIt = g_TlutObjMeta.find(oa);
     if (metaIt != g_TlutObjMeta.end()) {
         TlutObjMeta& meta = metaIt->second;

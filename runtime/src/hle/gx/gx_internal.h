@@ -55,13 +55,21 @@ bool is_offscreen() noexcept;
 }
 
 // --- Constants ---
+#if defined(MKW_GAME_MP9)
+constexpr uint32_t kGXDataPtrAddr = 0x80270220;
+#else
 constexpr uint32_t kGXDataPtrAddr = 0x803886C8;
+#endif
 constexpr uint32_t kDlFifoAddr = 0x80344090;
 constexpr uint32_t kDlWritePtrAddr = 0x803440A4;
 constexpr uint32_t kDlCountAddr = 0x803440AC;
 constexpr uint32_t kDlWrapFlagOffset = 0x20;
 constexpr uint32_t kMaxTluts = 20;
+#if defined(MKW_GAME_MP9)
+constexpr uint32_t kGxDrawDoneFlagAddr = 0x8026E918;
+#else
 constexpr uint32_t kGxDrawDoneFlagAddr = 0x803867d8;
+#endif
 
 // --- External Declarations ---
 extern "C" void GXInitTexObjTlut(GXTexObj* obj, u32 tlut);

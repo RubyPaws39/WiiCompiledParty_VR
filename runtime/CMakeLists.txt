@@ -28,6 +28,7 @@ if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
 endif()
 
 option(MKW_BUILD_PRODUCTS "Build translated WiiCompiled product targets" ON)
+option(MKW_GAME_MP9 "Build the experimental SSQE01 Mario Party 9 runtime adapter" OFF)
 
 # Preprocessor definitions that belong to this project's own code (the runtime,
 # the translated shards and the product glue) and to nothing else. They are
@@ -36,6 +37,9 @@ option(MKW_BUILD_PRODUCTS "Build translated WiiCompiled product targets" ON)
 # libraries and the products in cmake/PublicProducts.cmake) inherits them while
 # aurora-main and its third-party tree stay unaffected.
 set(MKW_PROJECT_COMPILE_DEFINITIONS NOMINMAX)
+if(MKW_GAME_MP9)
+    list(APPEND MKW_PROJECT_COMPILE_DEFINITIONS MKW_GAME_MP9)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -349,6 +353,12 @@ endif()
 # a registration file is silently never compiled and never errors. The stale-glob
 # failure mode is worth far more than the milliseconds.
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp")
+if(MKW_GAME_MP9)
+    list(APPEND SOURCES "${CMAKE_CURRENT_LIST_DIR}/../ports/mp9/sdk_bindings.cpp")
+    # Its registration opt-in must precede abi_bridge.h; a PCH or unity TU would erase it.
+    set_source_files_properties("${CMAKE_CURRENT_LIST_DIR}/../ports/mp9/sdk_bindings.cpp"
+        PROPERTIES SKIP_PRECOMPILE_HEADERS ON SKIP_UNITY_BUILD_INCLUSION ON)
+endif()
 set_source_files_properties(src/vr/openxr_vulkan_win32.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
 if(MKW_PLATFORM_MACOS)
     list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_LIST_DIR}/src/guest_flat_memory.cpp")

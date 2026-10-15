@@ -4,6 +4,9 @@
 #include "system_bridge.h"
 #include "game_graphics_options.h"
 #include "runtime_log.h"
+#if defined(MKW_GAME_MP9)
+#include "mp9_rel_context.h"
+#endif
 
 #include <array>
 #include <atomic>
@@ -26,10 +29,17 @@ inline void InvokeIndirectCpu(uint32_t target, CpuContext* ctx);
 // (used for the path mask filtering in ScnRenderer::createPath: depth of
 // field is always removed, bloom when the user disabled it)
 inline void ApplyRuntimeCallOptions(uint32_t target, CpuContext* ctx) {
+#if defined(MKW_GAME_MP9)
+    // Preserve the original SDK linker; observe its section layout so native
+    // module functions resolve operands against the actual guest allocation.
+    if (target == 0x80183790u) Mp9ObserveRelLink(ctx->gpr[3]);
+    if (target == 0x80183CD0u) Mp9ObserveRelUnlink(ctx->gpr[3]);
+#endif
     if (target == 0x8023BD38u) {
         // ScnRenderer::createPath receives the post-processing path mask in r4.
         ctx->gpr[4] = RuntimeGameGraphicsOptions::FilterScnRendererPathMask(ctx->gpr[4]);
     }
+
 }
 
 // Persistent per-thread CPU context used across translated function calls.
@@ -597,6 +607,9 @@ inline void InvokeIndirectJump(uint32_t target, CpuContext* ctx) {
     // This is essential for tail calls via bctr where the 'this' pointer (r3)
     // must be passed correctly to the target function.
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
+#if defined(MKW_GAME_MP9)
+    target = Mp9CanonicalRelTarget(target);
+#endif
     if (TryDispatchRawCpuTarget(TranslatedFunctionRegistry::FindRawByAddressPtr(target), cpu)) {
         return;
     }
@@ -641,6 +654,9 @@ inline void InvokeIndirectJump(uint32_t target, CpuContext* ctx) {
 
 inline void InvokeIndirectCpu(uint32_t target, CpuContext* ctx) {
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
+#if defined(MKW_GAME_MP9)
+    target = Mp9CanonicalRelTarget(target);
+#endif
     if (target == 0) {
         ReportMissingCpuTarget(target, cpu);
     }
@@ -790,8 +806,14 @@ public:
 #define REGISTER_TRANSLATED_FUNCTION(address, fn) \
     static AbiTrampoline<decltype(fn)> MKW_DETAIL_MAKE_UNIQUE(_abi_trampoline_, __COUNTER__)(address, #fn, fn, FunctionKind::BaseTranslated, false, kPpcAllNonvolatileFprMask, 0, 0, nullptr, KnownTranslatedCpuCall<address>::kMustRemainDynamicallyDispatchable)
 
+#if defined(MKW_GAME_MP9) && !defined(MP9_VERIFIED_BINDINGS)
+// MP9 bindings are explicit. Mario Kart addresses must never enter its registry.
+#define REGISTER_NATIVE_FUNCTION(address, fn) static_assert(true)
+#define REGISTER_NATIVE_FUNCTION_AS(address, fn, pretty_name) static_assert(true)
+#else
 #define REGISTER_NATIVE_FUNCTION(address, fn) \
     static AbiTrampoline<decltype(fn)> MKW_DETAIL_MAKE_UNIQUE(_abi_native_trampoline_, __COUNTER__)(address, #fn, fn, FunctionKind::Native, false, kPpcAllNonvolatileFprMask, 0, 0, &AbiRawCpuThunk<&fn>::Invoke)
 
 #define REGISTER_NATIVE_FUNCTION_AS(address, fn, pretty_name) \
     static AbiTrampoline<decltype(fn)> MKW_DETAIL_MAKE_UNIQUE(_abi_native_trampoline_named_, __COUNTER__)(address, pretty_name, fn, FunctionKind::Native, false, kPpcAllNonvolatileFprMask, 0, 0, &AbiRawCpuThunk<&fn>::Invoke)
+#endif

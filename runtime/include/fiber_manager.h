@@ -40,7 +40,8 @@ enum class ThreadState : uint32_t {
 
 // Information about a guest fiber
 struct GuestFiber {
-    void* fiber = nullptr;              // Host context handle
+    void* fiber = nullptr;              // Owned host context handle
+    void* resumeFiber = nullptr;        // Borrowed current continuation (custom task stack)
     uint32_t entryPoint = 0;            // Thread entry function
     uint32_t entryArg = 0;              // Argument to entry function
     CpuContext cpuContext{};            // Saved CPU context for this fiber

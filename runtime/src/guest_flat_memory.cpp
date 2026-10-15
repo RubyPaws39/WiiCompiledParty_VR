@@ -704,12 +704,17 @@ void LogFaultSummary() noexcept {
         std::cerr.flush();
         return;
     }
+#if defined(MKW_GAME_MP9)
+    RT_LOG(RT_TAG_MEMORY) << "shutdown summary: blocked " << counters.unmapped
+              << " unmapped guest access(es); no sparse RAM committed" << std::endl;
+#else
     RT_LOG(RT_TAG_MEMORY) << "WARNING shutdown summary: " << counters.unmapped
               << " unmapped guest touches across " << counters.unmappedRegions
               << " distinct 64 KiB regions were absorbed by on-demand commits. Each one is a "
                  "guest pointer that addressed nothing; search the log for "
                  "'[" RT_TAG_MEMORY "] WARNING unmapped guest touch' for the faulting addresses."
               << std::endl;
+#endif
     RT_LOG(RT_TAG_MEMORY) << "shutdown summary: efb=" << counters.efb
               << " xguard=" << counters.xguard << " mmio=" << counters.mmio << std::endl;
     std::cerr.flush();
@@ -822,6 +827,15 @@ bool HandleAccessViolation(void* faultAddress, bool isWrite) noexcept {
         return true;
     }
 
+#if defined(MKW_GAME_MP9)
+    // Native MP9 bring-up must stop at the first corrupt guest pointer. The
+    // legacy sparse-map fallback otherwise hides it by manufacturing RAM.
+    g_countUnmapped.fetch_add(1, std::memory_order_relaxed);
+    ReportFatalGuestFault("unmapped guest pointer", guestAddress, isWrite,
+                          "MP9 accessed memory outside its mapped regions. Trace the original "
+                          "caller and repair the pointer or missing service; no RAM was created.");
+    return true;
+#endif
     // 4) Unmapped address: commit the block on demand (reproducing the old zero-fill sparse-map behavior)
     //    and report it, since a commit here means a wild guest pointer that would otherwise walk over silently.
     const uint64_t blockBase = static_cast<uint64_t>(guestAddress) & ~(kAllocationGranularity - 1u);

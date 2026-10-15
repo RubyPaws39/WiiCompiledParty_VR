@@ -18,6 +18,7 @@
 #include "runtime_log.h"
 #include "system_bridge.h"
 
+#if !defined(MKW_GAME_MP9)
 extern "C" void func_801A961C(CpuContext* ctx);
 extern "C" void func_8055531C(CpuContext* ctx);
 
@@ -34,6 +35,7 @@ extern "C" void StaticRProlog_RecompModInit_8055531c(CpuContext* ctx) {
 }
 
 REGISTER_NATIVE_FUNCTION_AS(0x8055531C, StaticRProlog_RecompModInit_8055531c, "StaticRProlog_RecompModInit_8055531c");
+#endif
 
 namespace {
 std::string ReadGuestCStringLimited(uint32_t address, size_t limit = 4096) {
@@ -311,7 +313,9 @@ extern "C" void PPCMfhid2_HLE_8012e630(CpuContext* ctx)
 {
     ctx->gpr[3] = PPCMfhid2_8012e630_impl();
 }
+#if !defined(MKW_GAME_MP9)
 REGISTER_TRANSLATED_FUNCTION(0x8012e630, PPCMfhid2_HLE_8012e630);
+#endif
 
 extern "C" void PPCMthid2_8012e638(CpuContext* ctx)
 {

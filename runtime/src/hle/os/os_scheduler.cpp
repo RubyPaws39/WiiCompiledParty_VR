@@ -11,6 +11,13 @@
 #include "runtime_log.h"
 #include "os_internal.h"
 
+#if defined(MKW_GAME_MP9)
+// SSQE01 context-save routine: saves r1/r2/r13-r31, CR/LR/CTR/XER/GQR/MSR;
+// writes saved r3=1 and returns r3=0, matching OSSaveContext's resume contract.
+extern "C" void func_8017EF10(CpuContext* ctx);
+#define func_801A1ED8 func_8017EF10
+#endif
+
 namespace {
 void LinkMutexToThread(uint32_t threadPtr, uint32_t mutexPtr)
 {

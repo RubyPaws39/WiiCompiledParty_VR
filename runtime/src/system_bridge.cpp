@@ -320,6 +320,12 @@ void SystemBridge::Initialize() {
     RT_LOG(RT_TAG_RUNTIME) << "Initializing data sections from embedded DOL/REL data" << std::endl;
     InitializeDataSections();
 
+#if defined(MKW_GAME_MP9)
+    // MP9 starts at its original __start; that path performs C++ initialization.
+    // Mario Kart's constructor addresses and StaticR startup do not apply.
+    return;
+#endif
+
     // Constructors run before the main entry point, but they still require the
     // PowerPC ABI environment. Keep using the persistent context here: the old
     // AbiCallContext path implicitly selected and seeded it for every ctor.
@@ -489,16 +495,20 @@ void SystemBridge::SeedLowMemDefaults(const Memory::Config& config) {
     constexpr uint32_t kBusClockHz =
         static_cast<uint32_t>(TimeBaseContract::kBusClockHz);
     constexpr uint32_t kCpuClockHz = kBusClockHz * 3u;
-    // Mario Kart Wii boots under IOS36. These are the IOS kernel values that
-    // Dolphin exposes in low memory for IOS36 (VersionInfo.cpp). SDK helpers
-    // read them through the 0xC0000000 MEM1 alias.
-    constexpr uint32_t kIos36Version = 0x00240E18u;
-    constexpr uint32_t kIos36Date = 0x00030110u;
+    // IOS metadata used by the original SDK's compatibility check. Protocol
+    // values match Dolphin Core/IOS/VersionInfo.cpp; no IOS executable bundled.
+#if defined(MKW_GAME_MP9)
+    // SSQE01 TMD requests IOS56; standard revision 5662, date 2010-03-01.
+    constexpr uint32_t kIosVersion = 0x0038161Eu;
+#else
+    constexpr uint32_t kIosVersion = 0x00240E18u; // Mario Kart: IOS36.
+#endif
+    constexpr uint32_t kIosDate = 0x00030110u;
 
     constexpr uint32_t kMem2LoFloor = 0x90000800u;
     // Reserve enough guest memory for the runtime-built DVD FST.
     constexpr uint32_t kDvdFstReserveSize = 0x200000u;
-    // IOS36 reserves 128 KiB for IPC immediately below a 128 KiB IOS-owned
+    // Both profiles reserve 128 KiB for IPC immediately below a 128 KiB IOS-owned
     // block. Dolphin's RAM override preserves both sizes and moves them to the
     // top of the expanded MEM2 mapping.
     constexpr uint32_t kIPCArenaSize = 0x20000u;
@@ -508,10 +518,18 @@ void SystemBridge::SeedLowMemDefaults(const Memory::Config& config) {
     // Retro Rewind reads the region byte directly from here while building its
     // Retro-WFC payload URL, and OSGetAppGamename reads the app code mirrors
     // at 0x80003180/0x80003194 while building NAS auth fields.
-    entries.push_back({0x80000000u, 0x524D4350u, "Disc game code"}); // RMCP
-    entries.push_back({0x80000004u, 0x30310100u, "Disc maker/id"});  // 01 + disc 1
-    entries.push_back({0x80003180u, 0x524D4350u, "OS app game code"}); // RMCP
-    entries.push_back({0x80003194u, 0x524D4350u, "OS app gamename"});  // RMCP
+#if defined(MKW_GAME_MP9)
+    // First eight bytes of the hash-matched SSQE01 boot.bin, not the Mario Kart ID.
+    constexpr uint32_t gameCode = 0x53535145u;
+    constexpr uint32_t discMakerWord = 0x30310000u;
+#else
+    constexpr uint32_t gameCode = 0x524D4350u;
+    constexpr uint32_t discMakerWord = 0x30310100u;
+#endif
+    entries.push_back({0x80000000u, gameCode, "Disc game code"});
+    entries.push_back({0x80000004u, discMakerWord, "Disc maker/id"});
+    entries.push_back({0x80003180u, gameCode, "OS app game code"});
+    entries.push_back({0x80003194u, gameCode, "OS app gamename"});
     if (RuntimeProduct::IsRetroRewind()) {
         entries.push_back({0x800017D8u, 0x00000001u, "Retro Rewind recomp runtime marker", true});
     }
@@ -532,8 +550,13 @@ void SystemBridge::SeedLowMemDefaults(const Memory::Config& config) {
     // Seed OS clock values used by SDK timing helpers (OSBusClock/OSClock).
     entries.push_back({0x800000F8u, kBusClockHz, "__OSBusClock"});
     entries.push_back({0x800000FCu, kCpuClockHz, "__OSClock"});
-    entries.push_back({0x80003140u, kIos36Version, "IOS36 version"});
-    entries.push_back({0x80003144u, kIos36Date, "IOS36 date"});
+    entries.push_back({0x80003140u, kIosVersion, "IOS version"});
+    entries.push_back({0x80003144u, kIosDate, "IOS date"});
+#if defined(MKW_GAME_MP9)
+    // Apploader normally publishes the requested IOS version here. Native boot
+    // enters the DOL directly, so supply that missing bootloader handoff too.
+    entries.push_back({0x80003188u, kIosVersion, "Apploader IOS version"});
+#endif
 
     if (mem1Size != 0) {
         const uint32_t mem1End = Memory::kMem1CachedBase + mem1Size;

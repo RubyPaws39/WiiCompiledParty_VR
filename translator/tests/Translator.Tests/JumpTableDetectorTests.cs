@@ -9,6 +9,36 @@ public class JumpTableDetectorTests
     private static IReadOnlyDictionary<uint, int> BuildIndex(IReadOnlyList<PpcInstruction> ordered)
         => ordered.Select((ins, idx) => new { ins.Address, idx }).ToDictionary(x => x.Address, x => x.idx);
 
+    [Theory]
+    [InlineData("slwi")]
+    [InlineData("rlwinm")]
+    public void TracksScaledSelectorBeforeUnrelatedOldOffsetCompare(string shiftMnemonic)
+    {
+        const uint code = 0x80001000, table = 0x80001200;
+        var shiftOperands = new List<PpcOperand> {
+            new PpcRegisterOperand("r0", 0), new PpcRegisterOperand("r31", 31),
+            new PpcImmediateOperand(2)
+        };
+        if (shiftMnemonic == "rlwinm") {
+            shiftOperands.Add(new PpcImmediateOperand(0));
+            shiftOperands.Add(new PpcImmediateOperand(29));
+        }
+        var ordered = new List<PpcInstruction> {
+            PpcInstruction.Synthetic(code, 0, "cmplwi", new PpcOperand[] { new PpcRegisterOperand("r0", 0), new PpcImmediateOperand(1) }),
+            PpcInstruction.Synthetic(code + 4, 0, "cmplwi", new PpcOperand[] { new PpcRegisterOperand("r31", 31), new PpcImmediateOperand(8) }),
+            PpcInstruction.Synthetic(code + 8, 0, shiftMnemonic, shiftOperands),
+            PpcInstruction.Synthetic(code + 12, 0, "lis", new PpcOperand[] { new PpcRegisterOperand("r3", 3), new PpcImmediateOperand(unchecked((short)0x8000)) }),
+            PpcInstruction.Synthetic(code + 16, 0, "addi", new PpcOperand[] { new PpcRegisterOperand("r3", 3), new PpcRegisterOperand("r3", 3), new PpcImmediateOperand(0x1200) }),
+            PpcInstruction.Synthetic(code + 20, 0, "lwzx", new PpcOperand[] { new PpcRegisterOperand("r3", 3), new PpcRegisterOperand("r3", 3), new PpcRegisterOperand("r0", 0) }),
+            PpcInstruction.Synthetic(code + 24, 0, "mtctr", new PpcOperand[] { new PpcRegisterOperand("r3", 3) }),
+            PpcInstruction.Synthetic(code + 28, 0, "bctr", Array.Empty<PpcOperand>())
+        };
+        var expected = Enumerable.Range(0, 9).Select(i => code + 0x40u + (uint)i * 4).ToArray();
+        var image = TranslatorCppTestHarness.CreateImage(expected.Select((target, i) => (table + (uint)i * 4, target)).ToArray());
+        Assert.True(JumpTableDetector.TryRecognize(ordered, BuildIndex(ordered), code + 28, code, code + 0x100, image, out var targets));
+        Assert.Equal(expected, targets);
+    }
+
     [Fact]
     public void RecognizesLwzxBackedSwitchTable()
     {

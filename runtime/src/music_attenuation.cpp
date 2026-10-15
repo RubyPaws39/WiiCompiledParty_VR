@@ -80,6 +80,11 @@ bool ReadGuestFloat(uint32_t address, float& value) noexcept {
 }
 
 uint32_t ResolveSoundPlayerArray() noexcept {
+#if defined(MKW_GAME_MP9)
+    // This optional volume feature follows Mario Kart's SoundManager and PAL
+    // BRSAR bus layout. MP9 owns this address range for unrelated game data.
+    return 0;
+#else
     uint32_t soundManager = 0;
     uint32_t archivePlayer = 0;
     uint32_t soundPlayers = 0;
@@ -92,6 +97,7 @@ uint32_t ResolveSoundPlayerArray() noexcept {
     // revo_kart.brsar names player 0 YPPL_BGM. Players 1-10 are the
     // independent UI, object, engine, race, vehicle, and voice players.
     return soundPlayers;
+#endif
 }
 
 enum class SoundCategory {

@@ -387,6 +387,21 @@ internal static class JumpTableDetector
         for (var i = startIndex - 1; i >= 0 && startIndex - i <= MaxBacktrackInstructions; i--)
         {
             var ins = ordered[i];
+            // lwzx consumes a byte offset. Follow its scale back to the
+            // logical selector before looking for a bound; a previous compare
+            // on the reused offset register describes an unrelated value.
+            if (ins.Operands.Count >= 3 &&
+                ins.Operands[0] is PpcRegisterOperand scaled && RegistersEqual(scaled.Name, register) &&
+                ins.Operands[1] is PpcRegisterOperand selector &&
+                ins.Operands[2] is PpcImmediateOperand shift && shift.Value == 2 &&
+                (ins.Mnemonic == "slwi" ||
+                 (ins.Mnemonic is "rlwinm" or "rlwinm." && ins.Operands.Count >= 5 &&
+                  ins.Operands[3] is PpcImmediateOperand firstBit && firstBit.Value == 0 &&
+                  ins.Operands[4] is PpcImmediateOperand lastBit && lastBit.Value == 29)))
+            {
+                register = selector.Name;
+                continue;
+            }
             if (ins.Operands.Count < 2 || ins.Operands[0] is not PpcRegisterOperand reg ||
                 !string.Equals(reg.Name, register, StringComparison.OrdinalIgnoreCase) ||
                 ins.Operands[1] is not PpcImmediateOperand imm)

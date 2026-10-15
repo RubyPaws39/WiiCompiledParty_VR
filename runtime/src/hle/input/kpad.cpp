@@ -15,7 +15,11 @@
 // reads pos, horizon and dist, and only while dpd_valid_fg is positive.
 namespace {
 
+#if defined(MKW_GAME_MP9)
+constexpr uint32_t kKpadStatusSize = 0xF0;
+#else
 constexpr uint32_t kKpadStatusSize = 0x84;
+#endif
 
 // KPADStatus field offsets (RVL SDK).
 constexpr uint32_t kHold = 0x00, kTrig = 0x04, kRelease = 0x08, kAcc = 0x0C, kAccValue = 0x18,
@@ -28,7 +32,12 @@ constexpr uint32_t kHold = 0x00, kTrig = 0x04, kRelease = 0x08, kAcc = 0x0C, kAc
 // switch to 1 for every channel, and KPADEnableDpd / KPADDisableDpd, which the
 // game inlines into Input::WiiController::TogglePointer, flip it. The SDK
 // reports no pointer while it is off.
+#if defined(MKW_GAME_MP9)
+// SSQE01 KPADInitEx plus the game's inlined KPADEnableDpd/DisableDpd.
+constexpr uint32_t kKpadWorkBase = 0x802FB408, kKpadWorkSize = 0x688, kKpadDpdEnabled = 0x642;
+#else
 constexpr uint32_t kKpadWorkBase = 0x803457E0, kKpadWorkSize = 0x538, kKpadDpdEnabled = 0x520;
+#endif
 // dpd_valid_fg for a pointer computed from both sensor-bar dots.
 constexpr uint8_t kDpdValidTwoDots = 2;
 // KPADStatus.ex_status.cl (KPADEXStatus, Classic Controller view).
@@ -116,7 +125,11 @@ int32_t WriteStatus(uint32_t chan, uint32_t addr, const WiiRemoteInput::KpadSamp
         Memory::Write32(addr + kHold, 0);
         Memory::Write32(addr + kTrig, 0);
         Memory::Write32(addr + kRelease, 0);
+#if defined(MKW_GAME_MP9)
+        Memory::Write8(addr + kDevType, 0xFD); // SSQE01 disconnected remote.
+#else
         Memory::Write8(addr + kDevType, kDevCore);
+#endif
         Memory::Write8(addr + kWpadErr, static_cast<uint8_t>(kWpadErrNoController));
         Memory::Write8(addr + kDpdValidFg, 0);
         return 0;
@@ -276,6 +289,12 @@ extern "C" int32_t KPAD__Read_HLE(uint32_t chan, uint32_t statusPtr, uint32_t co
     WiiRemoteInput::KpadSample sample;
     const bool have = WiiRemoteInput::ReadKpadSample(chan, sample);
     try {
+#if defined(MKW_GAME_MP9)
+        if (!Memory::Contains(statusPtr, kKpadStatusSize)) return 0;
+        // Newer SDK adds extended-controller/MotionPlus fields after the common
+        // remote prefix. Clear inactive extensions instead of leaking old data.
+        WriteZeroFloats(statusPtr, kKpadStatusSize / 4);
+#endif
         return WriteStatus(chan, statusPtr, have ? &sample : nullptr);
     } catch (const Memory::AccessViolation&) {
         return 0;

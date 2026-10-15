@@ -55,9 +55,15 @@ endif()
 
 function(mkw_apply_common_compile_options target)
     target_compile_options(${target} PRIVATE -O3 -ffast-math -w -pipe)
+    if(MKW_GAME_MP9)
+        target_compile_options(${target} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
+    endif()
 endfunction()
 
 function(mkw_apply_translated_compile_options target)
+    if(MKW_GAME_MP9)
+        target_compile_options(${target} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
+    endif()
     # The NDK toolchain adds -fstack-protector-strong to every object. Translated guest code keeps
     # its state in guest memory and the CpuContext, so the canaries only cost cycles there.
     target_compile_options(${target} PRIVATE
@@ -72,6 +78,7 @@ function(mkw_configure_object_target target)
         # Workspace root, so translator output is spelled "generated/<x>.h"
         # instead of a ../ chain whose depth depends on the includer.
         "${MKW_GENERATED_PARENT_DIR}"
+        "${MKW_GENERATED_DIR}"
         "${MKW_RUNTIME_SOURCE_DIR}/.."
         "${MKW_RUNTIME_SOURCE_DIR}/../aurora-main/include")
     target_compile_definitions(${target} PRIVATE
@@ -247,6 +254,10 @@ endif()
 # shards and the runtime objects generated from the disc. The Quest game kit is built that way.
 function(mkw_configure_product target)
     cmake_parse_arguments(PARSE_ARGV 1 MKW_PRODUCT "WITHOUT_GAME" "" "")
+    if(ANDROID AND MKW_GAME_MP9)
+        target_sources(${target} PRIVATE
+            "${MKW_RUNTIME_SOURCE_DIR}/../android/app/src/main/cpp/quest_surface_jni.cpp")
+    endif()
     if(MKW_PRODUCT_WITHOUT_GAME)
         target_sources(${target} PRIVATE
             "$<FILTER:$<TARGET_OBJECTS:mkw_runtime_common>,EXCLUDE,data_sections_init|guest_symbol_table>")
@@ -264,6 +275,7 @@ function(mkw_configure_product target)
         # Workspace root, so translator output is spelled "generated/<x>.h"
         # instead of a ../ chain whose depth depends on the includer.
         "${MKW_GENERATED_PARENT_DIR}"
+        "${MKW_GENERATED_DIR}"
         "${MKW_RUNTIME_SOURCE_DIR}/.."
         "${MKW_RUNTIME_SOURCE_DIR}/../aurora-main/include")
     target_compile_definitions(${target} PRIVATE

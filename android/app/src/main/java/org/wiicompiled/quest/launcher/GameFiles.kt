@@ -9,19 +9,21 @@ object GameFiles {
 
     private const val TAG = "WiiCompiledLauncher"
 
-    val checks = DiscChecks(BuildConfig.DISC_GAME_ID, BuildConfig.DISC_DOL_SHA256, BuildConfig.DISC_REL_SHA256)
+    val checks = if (BuildConfig.DISC_GAME_ID == MarioParty9DiscPins.GAME_ID) {
+        DiscChecks(MarioParty9DiscPins.GAME_ID, MarioParty9DiscPins.TITLE, MarioParty9DiscPins.codeHashes)
+    } else {
+        DiscChecks(BuildConfig.DISC_GAME_ID, BuildConfig.DISC_DOL_SHA256, BuildConfig.DISC_REL_SHA256)
+    }
 
     /**
      * InstallerEngine.ValidateExtractedGame (the PC installer): the files the runtime needs, with
      * the pinned hashes. Null when [root] is a usable DATA folder.
      */
     fun validateData(root: File): String? {
-        val dol = File(root, DiscChecks.DOL_PATH)
-        val rel = File(root, DiscChecks.REL_PATH)
-        if (!dol.isFile || !rel.isFile || !File(root, DiscChecks.FST_PATH).isFile) {
-            return "The game files are missing required Mario Kart Wii files."
+        if (!File(root, DiscChecks.FST_PATH).isFile) {
+            return "The disc filesystem is missing. Import your disc image again."
         }
-        return checks.revisionError(dol.readBytes(), rel.readBytes())
+        return checks.revisionError { path -> File(root, path).readBytes() }
     }
 
     /**

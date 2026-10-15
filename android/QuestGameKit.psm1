@@ -147,7 +147,7 @@ function Read-CompileCommands([string]$Path) {
 
 # Compile flags of one recorded command, reduced to what a generated source needs anywhere.
 function ConvertTo-KitCompileFlags {
-    param([string[]]$Arguments, [string]$RuntimeInclude, [string]$Workspace)
+    param([string[]]$Arguments, [string]$RuntimeInclude, [string]$Workspace, [string]$Generated)
     $flags = New-Object System.Collections.Generic.List[string]
     for ($i = 1; $i -lt $Arguments.Length; $i++) {
         $a = $Arguments[$i]
@@ -169,6 +169,7 @@ function ConvertTo-KitCompileFlags {
                 $path = ConvertTo-ForwardPath $a.Substring(2)
                 if ($path -eq $RuntimeInclude) { $flags.Add('-I{kit}/include') }
                 elseif ($path -eq $Workspace) { $flags.Add('-I{workspace}') }
+                elseif ($path -eq $Generated) { $flags.Add('-I{workspace}/generated') }
                 continue
             }
             default { $flags.Add($a) }
@@ -289,13 +290,18 @@ function Export-QuestGameKit {
         return $entry[0]
     }
     $translatedEntry = Find-Command '/build_shards/base_common/[^/]+\.cpp$'
-    $workspace = ConvertTo-ForwardPath ($translatedEntry.file.Replace('\', '/') -replace '/generated/build_shards/.*$', '')
+    $generated = ConvertTo-ForwardPath ($translatedEntry.file.Replace('\', '/') -replace '/build_shards/.*$', '')
+    $workspace = ConvertTo-ForwardPath (Split-Path -Parent $generated)
     $flagsFor = {
         param($Entry)
-        ConvertTo-KitCompileFlags -Arguments (Split-CommandLine $Entry.command) -RuntimeInclude $runtimeInclude -Workspace $workspace
+        ConvertTo-KitCompileFlags -Arguments (Split-CommandLine $Entry.command) -RuntimeInclude $runtimeInclude -Workspace $workspace -Generated $generated
     }
 
-    if (Test-Path $OutputDir) { Remove-Item -Recurse -Force $OutputDir }
+    $OutputDir = [IO.Path]::GetFullPath($OutputDir)
+    if ([IO.Path]::GetFileName($OutputDir.TrimEnd('\', '/')) -ne 'game_kit') {
+        throw "Kit export directory must end in game_kit: $OutputDir"
+    }
+    if (Test-Path $OutputDir) { Remove-Item -LiteralPath $OutputDir -Recurse -Force }
     New-Item -ItemType Directory -Force (Join-Path $OutputDir 'objects'), (Join-Path $OutputDir 'libs') | Out-Null
     Copy-Item -Recurse (Join-Path $RepoRoot 'runtime/include') (Join-Path $OutputDir 'include')
 
@@ -388,7 +394,7 @@ function Export-QuestGameKit {
             compile = [ordered]@{
                 translated = & $flagsFor $translatedEntry
                 product = & $flagsFor (Find-Command $kitProfile.RegistrationPattern)
-                runtime = & $flagsFor (Find-Command '/generated/data_sections_init\.cpp$')
+                runtime = & $flagsFor (Find-Command '/data_sections_init\.cpp$')
                 asm = & $flagsFor (Find-Command 'data_sections_init_blobs[^/]*\.S$')
             }
             sources = $kitProfile.Sources
@@ -405,8 +411,15 @@ function Export-QuestGameKit {
     # the runtime sources it indexes for native registrations, which must be the ones compiled into
     # this kit.
     $translation = Join-Path $OutputDir 'translation'
-    New-Item -ItemType Directory -Force (Join-Path $translation 'projects/mkwii'), (Join-Path $translation 'runtime') | Out-Null
-    Copy-Item (Join-Path $RepoRoot 'projects/mkwii/recomp.yml'), (Join-Path $RepoRoot 'projects/mkwii/MAP.txt') (Join-Path $translation 'projects/mkwii')
+    New-Item -ItemType Directory -Force (Join-Path $translation 'runtime') | Out-Null
+    $isMp9 = $cache -match '(?m)^MKW_GAME_MP9:BOOL=ON\r?$'
+    if ($isMp9) {
+        New-Item -ItemType Directory -Force (Join-Path $translation 'ports/mp9') | Out-Null
+        Copy-Item (Join-Path $RepoRoot 'ports/mp9/sdk_bindings.cpp'), (Join-Path $RepoRoot 'ports/mp9/exi_device.h'), (Join-Path $RepoRoot 'ports/mp9/gx_state.h') (Join-Path $translation 'ports/mp9')
+    } else {
+        New-Item -ItemType Directory -Force (Join-Path $translation 'projects/mkwii') | Out-Null
+        Copy-Item (Join-Path $RepoRoot 'projects/mkwii/recomp.yml'), (Join-Path $RepoRoot 'projects/mkwii/MAP.txt') (Join-Path $translation 'projects/mkwii')
+    }
     Copy-Item -Recurse (Join-Path $RepoRoot 'runtime/src') (Join-Path $translation 'runtime/src')
 
     $recipe = [ordered]@{
@@ -414,6 +427,11 @@ function Export-QuestGameKit {
         androidCpu = $AndroidCpu
         runtimeIncludeFingerprint = Get-RuntimeIncludeFingerprint (Join-Path $OutputDir 'include')
         products = $products
+    }
+    if ($isMp9) {
+        $recipe.gameId = 'SSQE01'
+        $recipe.nativeBootOnly = $true
+        $recipe.onDeviceBuild = $false
     }
     $recipeJson = $recipe | ConvertTo-Json -Depth 8 -Compress
     $files = Get-RelativeFiles $OutputDir | Sort-Object FullName | ForEach-Object {

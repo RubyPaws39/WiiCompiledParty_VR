@@ -248,6 +248,9 @@ bool ReadSceneViewMatrix(Mtx34& out) noexcept {
 // (ReadRaceCameraBlend); zero asks for the camera without that offset.
 bool ReadRaceCameraViewMatrix(const CpuContext* context, uint32_t camera_address, Mtx34& out,
                               float dolly) noexcept {
+#if defined(MKW_GAME_MP9)
+    return false; // Kart camera accessors do not apply to Mario Party.
+#else
     if (context == nullptr || camera_address == 0 ||
         context->gpr[1] < kRaceCameraScratchBytes) {
         return false;
@@ -268,6 +271,7 @@ bool ReadRaceCameraViewMatrix(const CpuContext* context, uint32_t camera_address
     } catch (const Memory::AccessViolation&) {
         return false;
     }
+#endif
 }
 
 // The pointer walk, kept inspectable: on failure `failed_step` names the link
@@ -403,6 +407,9 @@ uint32_t ResolveModelsVisibility(uint32_t accessor) noexcept {
 // Carries the visibility fields out to the models, the way the kart update
 // does. Without this the fields are just bytes nothing has read.
 void ApplyModelsVisibilityToModels(uint32_t visibility) noexcept {
+#if defined(MKW_GAME_MP9)
+    return; // No kart driver/model visibility subsystem in MP9.
+#else
     const CpuContext* context = TryGetCpuContext();
     if (context == nullptr || visibility == 0) {
         return;
@@ -414,11 +421,15 @@ void ApplyModelsVisibilityToModels(uint32_t visibility) noexcept {
         func_8056A470(&call_context);
     } catch (const Memory::AccessViolation&) {
     }
+#endif
 }
 
 // Applies the draw byte to one model only. Bounded and pointer-checked because
 // this ends in a virtual call on a guest object.
 bool ApplyModelDraw(uint32_t visibility, uint32_t holder, uint32_t index) noexcept {
+#if defined(MKW_GAME_MP9)
+    return false;
+#else
     uint32_t model = 0;
     if (!ReadGuestPointer(holder + kModelHolderArrayOffset + index * 4u, model)) {
         return false;
@@ -437,6 +448,7 @@ bool ApplyModelDraw(uint32_t visibility, uint32_t holder, uint32_t index) noexce
         return false;
     }
     return true;
+#endif
 }
 
 // The model array the visibility loop walks, or zero when it cannot be reached.

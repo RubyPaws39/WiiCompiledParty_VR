@@ -1,4 +1,5 @@
 import javax.inject.Inject
+import groovy.json.JsonSlurper
 import org.gradle.api.provider.Property
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -19,6 +20,7 @@ val mkwQuestDawnDir = providers.gradleProperty("mkwQuestDawnDir").orNull
 // Optional: a directory holding a second SDL3 AAR/prefab is not needed; the
 // AAR in app/libs is produced by Prepare-QuestDependencies.ps1.
 val mkwRepoRoot = rootProject.file("..").canonicalFile
+val mp9DiscManifestPath = providers.gradleProperty("mp9DiscManifest").orNull
 
 // The runtime's read-only assets travel inside the APK and are unpacked by
 // QuestActivity into the app's private storage on first launch.
@@ -35,6 +37,19 @@ val prepareRuntimeResources by tasks.registering(Copy::class) {
 // the clean PAL main.dol / StaticR.rel hashes, read from the same recomp.yml pins the
 // PC installer's payload manifest uses (Launcher/Build-Installer.ps1).
 val discPins: Map<String, String> = run {
+    if (mp9DiscManifestPath != null) {
+        val descriptor = JsonSlurper().parse(File(mp9DiscManifestPath)) as Map<*, *>
+        require(descriptor["game_id"] == "SSQE01") { "Expected the supported Mario Party 9 disc descriptor" }
+        require(listOf("dol_sha256", "code_manifest_sha256").all {
+            descriptor[it].toString().matches(Regex("[0-9a-fA-F]{64}"))
+        }) { "Disc descriptor requires valid SHA-256 pins" }
+        return@run mapOf(
+            "DISC_GAME_ID" to descriptor["game_id"].toString(),
+            "DISC_DOL_SHA256" to descriptor["dol_sha256"].toString(),
+            // Legacy package identity field covers the full set of MP9 REL modules.
+            "DISC_REL_SHA256" to descriptor["code_manifest_sha256"].toString(),
+        )
+    }
     val manifest = File(mkwRepoRoot, "projects/mkwii/recomp.yml").readText()
     fun pin(pattern: String): String =
         Regex(pattern, RegexOption.DOT_MATCHES_ALL).find(manifest)?.groupValues?.get(1)
@@ -100,7 +115,7 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-        applicationId = "org.wiicompiled.quest"
+        applicationId = if (mp9DiscManifestPath != null) "org.marioparty9.quest" else "org.wiicompiled.quest"
         // Quest 2 ships Android 10 (API 29); AHardwareBuffer/Vulkan 1.1 need 26+.
         minSdk = 29
         targetSdk = 34
@@ -115,7 +130,7 @@ android {
         // disc and loaded from private storage (see android/QuestGameKit.psm1). One app offers
         // both products, like the PC launcher, and the launcher's toggle picks which one to play.
         buildConfigField("boolean", "EXTERNAL_GAME", "true")
-        buildConfigField("boolean", "ON_DEVICE_BUILD", "true")
+        buildConfigField("boolean", "ON_DEVICE_BUILD", (mp9DiscManifestPath == null).toString())
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -132,6 +147,7 @@ android {
                     "-DANDROID_STL=c++_shared",
                     "-DANDROID_PLATFORM=android-29",
                     "-DMKW_REPO_ROOT=${mkwRepoRoot.path.replace('\\', '/')}",
+                    "-DMKW_GAME_MP9=${if (mp9DiscManifestPath != null) "ON" else "OFF"}",
                 )
                 if (mkwGeneratedDir != null) {
                     arguments += "-DMKW_GENERATED_DIR=${File(mkwGeneratedDir).canonicalPath.replace('\\', '/')}"
@@ -190,6 +206,9 @@ android {
     sourceSets.named("main") {
         assets.srcDir(runtimeResources)
         jniLibs.srcDir(nodJniLibs)
+    }
+    if (mp9DiscManifestPath != null) {
+        sourceSets.named("modernQuest") { res.srcDir("src/mp9/res") }
     }
 
     compileOptions {
@@ -332,6 +351,7 @@ androidComponents {
         }
         variant.sources.assets?.addGeneratedSourceDirectory(export, ExportQuestGameKit::outputDir)
 
+        if (mp9DiscManifestPath == null) {
         val prepareToolchain = tasks.register<PrepareQuestToolchain>("prepare${capitalized}QuestToolchain") {
             script.set(rootProject.layout.projectDirectory.file("Prepare-QuestToolchain.ps1"))
             sources.from(script, rootProject.layout.projectDirectory.dir("toolchain"))
@@ -340,6 +360,7 @@ androidComponents {
             ndkLlvm.set(sdkComponents.ndkDirectory.map { it.dir("toolchains/llvm/prebuilt/$host") })
         }
         variant.sources.assets?.addGeneratedSourceDirectory(prepareToolchain, PrepareQuestToolchain::outputDir)
+        }
     }
 }
 

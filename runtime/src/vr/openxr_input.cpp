@@ -10,6 +10,7 @@
 #endif
 
 #include "vr/openxr_input.h"
+#include "vr/openxr_integration.h"
 #include "physical_wheel.h"
 #include "runtime_config.h"
 #include "settings_overlay.h"
@@ -1078,9 +1079,16 @@ void OpenXRInput::Sync(XrTime predicted_display_time, const OpenXRPointerScreen&
     // on release, so the two-thumbstick panel chord never toggles it, and
     // never while the panel has the controllers.
     if (m_first_person_click.Update(hands[1].thumbstick_click, hands[0].thumbstick_click,
-                                    panel.open || panel.withheld) &&
-        RuntimeConfigFile::VrFirstPersonToggleClick()) {
+                                    panel.open || panel.withheld)
+#if !defined(MKW_GAME_MP9)
+        && RuntimeConfigFile::VrFirstPersonToggleClick()
+#endif
+    ) {
+#if defined(MKW_GAME_MP9)
+        OpenXRRequestRecenter();
+#else
         settings_overlay::RequestFirstPersonToggle();
+#endif
         constexpr XrDuration kToggleTickNs = 20'000'000;
         ApplyHaptic(1, 0.35f, kToggleTickNs);
     }

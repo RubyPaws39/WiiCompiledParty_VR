@@ -11,9 +11,24 @@ import java.util.Locale
  */
 class DiscChecks(
     private val gameId: String,
-    private val dolSha256: String,
-    private val relSha256: String,
+    private val gameTitle: String,
+    codeHashes: Map<String, String>,
 ) {
+    private val codeHashes = codeHashes.toMap()
+
+    constructor(gameId: String, dolSha256: String, relSha256: String) : this(
+        gameId, "Mario Kart Wii PAL", mapOf(DOL_PATH to dolSha256, REL_PATH to relSha256)
+    )
+
+    init {
+        require(gameId.matches(Regex("[A-Z0-9]{6}"))) { "Invalid disc game ID" }
+        require(this.codeHashes.containsKey(DOL_PATH) && this.codeHashes.size <= 256) { "Invalid code manifest" }
+        require(this.codeHashes.all { (path, hash) ->
+            path.isNotEmpty() && !path.startsWith('/') && '\\' !in path &&
+                path.split('/').none { it.isEmpty() || it == "." || it == ".." } &&
+                hash.matches(Regex("[0-9a-fA-F]{64}"))
+        }) { "Invalid code file path or SHA-256" }
+    }
 
     data class Header(val gameId: String, val title: String, val extractedBytes: Long)
 
@@ -27,16 +42,23 @@ class DiscChecks(
         if (header.gameId.equals(gameId, ignoreCase = true)) {
             return null
         }
-        return "This build supports Mario Kart Wii PAL ($gameId). The selected image is " +
+        return "This build supports $gameTitle ($gameId). The selected image is " +
             "${header.gameId} (${header.title}, ${region(header.gameId)})."
     }
 
-    fun revisionError(dol: ByteArray, rel: ByteArray): String? {
-        if (sha256(dol).equals(dolSha256, ignoreCase = true) && sha256(rel).equals(relSha256, ignoreCase = true)) {
-            return null
+    fun revisionError(readFile: (String) -> ByteArray): String? {
+        for ((path, expected) in codeHashes) {
+            val bytes = try {
+                readFile(path)
+            } catch (error: java.io.IOException) {
+                return "The disc is missing or cannot read a required game file: $path."
+            }
+            if (!sha256(bytes).equals(expected, ignoreCase = true)) {
+                return "The disc is $gameId but does not match the supported revision: $path. " +
+                    "Use an unmodified copy of $gameTitle."
+            }
         }
-        return "The disc is $gameId but does not match the supported clean PAL revision. " +
-            "Patched or otherwise modified game code cannot be installed safely."
+        return null
     }
 
     companion object {

@@ -34,7 +34,7 @@ object DiscExtraction {
             return "This disc image could not be read. ${e.message.orEmpty()}".trim()
         }
         checks.compatibilityError(header)?.let { return it }
-        checks.revisionError(NodDisc.readFile(fd, DiscChecks.DOL_PATH), NodDisc.readFile(fd, DiscChecks.REL_PATH))
+        checks.revisionError { path -> NodDisc.readFile(fd, path) }
             ?.let { return it }
 
         val gameRoot = GameStorage.gameRoot(context)

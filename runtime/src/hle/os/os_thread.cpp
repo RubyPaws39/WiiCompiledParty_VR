@@ -216,7 +216,11 @@ void UnlockAllThreadMutexes(CpuContext* cpu, uint32_t threadPtr)
     }
     CpuContextScope scope(cpu);
     cpu->gpr[3] = threadPtr;
+#if defined(MKW_GAME_MP9)
+    InvokeDirectCpu<0x80184B40>(cpu); // Original MP9 __OSUnlockAllMutex.
+#else
     InvokeIndirectCpu(0x801A8088u, cpu); // __OSUnlockAllMutex
+#endif
 }
 
 // Shared tail of OSExitThread/OSCancelThread: clears context, delists if detached, marks
@@ -311,7 +315,11 @@ extern "C" void OSCreateThread_HLE_801a9e84(CpuContext* ctx)
             cpu->gpr[3] = threadPtr;
             cpu->gpr[4] = entryFunc;
             cpu->gpr[5] = alignedStack - 8;
+#if defined(MKW_GAME_MP9)
+            InvokeDirectCpu<0x8017F110>(cpu); // Original MP9 OSInitContext.
+#else
             InvokeIndirectCpu(0x801A20BCu, cpu); // OSInitContext
+#endif
         }
 
         if (IsThpVideoDecoderEntry(entryFunc)) {
@@ -325,7 +333,11 @@ extern "C" void OSCreateThread_HLE_801a9e84(CpuContext* ctx)
 
         }
 
+#if defined(MKW_GAME_MP9)
+        ::Memory::Write32(threadPtr + 0x84u, 0x80186C50u);
+#else
         ::Memory::Write32(threadPtr + 0x84u, 0x801AA0F0u); // LR = OSExitThread
+#endif
         ::Memory::Write32(threadPtr + 0x0Cu, entryArg);    // r3 = argument
 
         // Stack info
@@ -341,8 +353,13 @@ extern "C" void OSCreateThread_HLE_801a9e84(CpuContext* ctx)
         // Match the original OSCreateThread slow-path initialization that runs
         // once scheduler globals are live. THP worker threads depend on these
         // queue/list blocks being fully zeroed.
+#if defined(MKW_GAME_MP9)
+        constexpr uint32_t kSchedulerInitFlagAddr = 0x802CC770u;
+        constexpr uint32_t kThreadAttrSourceAddr = 0x8026DDD8u;
+#else
         constexpr uint32_t kSchedulerInitFlagAddr = 0x80347130u;
         constexpr uint32_t kThreadAttrSourceAddr = 0x80385AA8u;
+#endif
         if (Memory::Contains(kSchedulerInitFlagAddr, 4) &&
             ::Memory::Read32(kSchedulerInitFlagAddr) != 0) {
             uint32_t srr1 = ::Memory::Read32(threadPtr + 0x19Cu);

@@ -38,6 +38,11 @@ extern "C" void OS_HLE_EndDeferredGuestCallbacks();
 // renaming requires updating Translator.Cli/Program.cs, RuntimeNativeGuestEffectAnalyzer.cs,
 // TranslatedBuildShardEmitter.cs and RuntimeNativeFunctionAbiProvider.cs together.
 
+#if defined(MKW_GAME_MP9)
+// Do not export func_<Mario Kart address> wrappers into an MP9 binary either.
+#define PPC_NATIVE_OVERRIDE(addr_hex, name, ret_type, arg_list, call_list) static_assert(true)
+#define PPC_NATIVE_OVERRIDE_VOID(addr_hex, name, arg_list, call_list) static_assert(true)
+#else
 #define PPC_NATIVE_OVERRIDE(addr_hex, name, ret_type, arg_list, call_list) \
     extern "C" ret_type func_##addr_hex arg_list { return name call_list; } \
     REGISTER_NATIVE_FUNCTION(0x##addr_hex, name)
@@ -45,3 +50,4 @@ extern "C" void OS_HLE_EndDeferredGuestCallbacks();
 #define PPC_NATIVE_OVERRIDE_VOID(addr_hex, name, arg_list, call_list) \
     extern "C" void func_##addr_hex arg_list { name call_list; } \
     REGISTER_NATIVE_FUNCTION(0x##addr_hex, name)
+#endif

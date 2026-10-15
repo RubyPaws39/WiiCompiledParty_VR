@@ -64,6 +64,9 @@ public sealed record TranslationOptions(
     /// inliner clears it on callee-decode options to stop a splice from recursing into another.
     /// </summary>
     bool EnableLeafInlining = true,
+    // Relocatable AOT clients may replace link-time operands before SSA and
+    // constant folding. The callback must preserve architectural semantics.
+    Func<IReadOnlyList<LiftedInstruction>, IReadOnlyList<LiftedInstruction>>? RewriteLiftedInstructions = null,
     /// <summary>
     /// Addresses whose translated body is not the runtime winner - native
     /// registrations, base-translation exclusions and mod patch sites. These are
@@ -301,6 +304,7 @@ public sealed class FunctionTranslator
             options.AllowUnsupportedInstructions,
             entryPoint,
             options.KnownFunctionEntryPoints);
+        lifted = options.RewriteLiftedInstructions?.Invoke(lifted) ?? lifted;
         if (metrics is not null)
         {
             var unsupported = 0;
@@ -600,6 +604,7 @@ public sealed class FunctionTranslator
     /// </summary>
     private static bool IsLeafInliningEligibleCaller(TranslationOptions options) =>
         options.EnableLeafInlining &&
+        options.RewriteLiftedInstructions is null &&
         options.LrContinuationCallTargets is not { Count: > 0 } &&
         options.NonReturningCallTargets is not { Count: > 0 } &&
         options.LinkedCallFallthroughLrOverrides is not { Count: > 0 } &&

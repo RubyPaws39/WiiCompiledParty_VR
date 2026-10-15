@@ -3,6 +3,9 @@
 #include "runtime_log.h"
 
 #include <cstdio>
+#if defined(MKW_GAME_MP9)
+extern "C" uint32_t Mp9OSUnmaskInterrupts(uint32_t mask);
+#endif
 
 // Forward declarations for HLE functions used by GXInit
 extern "C" void __GX__FifoInit_8016d180();
@@ -27,8 +30,16 @@ static void GX__Flush_gx() { GXFlush(); }
  */
 extern "C" uint32_t GX__Init_8016b850(uint32_t fifoBase, uint32_t fifoSize)
 {
+#if defined(MKW_GAME_MP9)
+    constexpr uint32_t kFifoObjAddr = 0x802CDD20u;
+    constexpr uint32_t kGXDataAddr = 0x802CDDA0u;
+    if (!fifoSize || !Memory::Contains(fifoBase, fifoSize)) {
+        throw std::runtime_error("MP9 GX FIFO buffer outside RAM");
+    }
+#else
     constexpr uint32_t kFifoObjAddr = 0x80343740u;
     constexpr uint32_t kGXDataAddr = 0x803437C0u;
+#endif
     constexpr uint32_t kGXDataSize = 0x600u;
 
     GxThread::Post(&GX__Init_gx, fifoBase, fifoSize);
@@ -51,8 +62,18 @@ extern "C" uint32_t GX__Init_8016b850(uint32_t fifoBase, uint32_t fifoSize)
         RT_LOGF(RT_TAG_GX, "Memory access violation during GXData init: %s\n", e.what());
     }
 
+#if defined(MKW_GAME_MP9)
+    CpuContext* caller = TryGetCpuContext();
+    if (!caller) throw std::runtime_error("MP9 GX initialization requires CPU context");
+    CpuContext init = *caller;
+    // Original pure-memory helpers retain MP9 IRQ, queue and big-endian FIFO state.
+    InvokeDirectCpu<0x80194D00>(&init);
+    init.gpr[3] = kFifoObjAddr; init.gpr[4] = fifoBase; init.gpr[5] = fifoSize;
+    InvokeDirectCpu<0x801946A0>(&init);
+#else
     __GX__FifoInit_8016d180();
     GX__InitFifoBase_8016c7c8(kFifoObjAddr, fifoBase, fifoSize);
+#endif
     GX__SetCPUFifo_8016c94c(kFifoObjAddr);
     GX__SetGPFifo_8016cb2c(kFifoObjAddr);
     __GX__PEInit_8016ee14();
@@ -145,16 +166,30 @@ extern "C" void __GX__PEInit_8016ee14()
     constexpr uint32_t kPeFinishInterruptId = 0x13u;
     constexpr uint32_t kPeTokenInterruptMask = 0x1000u;
     constexpr uint32_t kPeFinishInterruptMask = 0x2000u;
+#if defined(MKW_GAME_MP9)
+    constexpr uint32_t kPeTokenHandlerAddr = 0x80196820;
+    constexpr uint32_t kPeFinishHandlerAddr = 0x80196900;
+    constexpr uint32_t kPeThreadQueueAddr = 0x8026E910;
+#else
     constexpr uint32_t kPeTokenHandlerAddr = 0x8016eccc;
     constexpr uint32_t kPeFinishHandlerAddr = 0x8016ed94;
     constexpr uint32_t kPeThreadQueueAddr = 0x803867d0u;
+#endif
 
     __OSSetInterruptHandler_801a65f8_hle(kPeTokenInterruptId, kPeTokenHandlerAddr);
     __OSSetInterruptHandler_801a65f8_hle(kPeFinishInterruptId, kPeFinishHandlerAddr);
+#if defined(MKW_GAME_MP9)
+    Mp9OSUnmaskInterrupts(kPeTokenInterruptMask | kPeFinishInterruptMask);
+#else
     __OSUnmaskInterrupts_801a69bc_hle(kPeTokenInterruptMask);
     __OSUnmaskInterrupts_801a69bc_hle(kPeFinishInterruptMask);
+#endif
 
     try { Memory::Write32(kPeThreadQueueAddr, 0); } catch (const ::Memory::AccessViolation&) {}
+#if defined(MKW_GAME_MP9)
+    Memory::Write32(kPeThreadQueueAddr + 4, 0);
+    Memory::Write8(kGxDrawDoneFlagAddr, 0);
+#else
     try {
         const uint32_t gd = Memory::Read32(kGXDataPtrAddr);
         if (gd) {
@@ -162,6 +197,7 @@ extern "C" void __GX__PEInit_8016ee14()
             Memory::Write16(gd + 0x0Au, static_cast<uint16_t>(cur | 0x000Fu));
         }
     } catch (const ::Memory::AccessViolation&) {}
+#endif
 }
 PPC_NATIVE_OVERRIDE_VOID(8016ee14, __GX__PEInit_8016ee14, (), ());
 

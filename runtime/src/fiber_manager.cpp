@@ -1,3 +1,4 @@
+extern "C" void OSExitThread_HLE_801aa0f0(struct CpuContext*);
 #include "fiber_manager.h"
 #if defined(__ANDROID__)
 #include "aurora_events.h"
@@ -8,10 +9,12 @@
 #include "host_context.h"
 #include "runtime_log.h"
 #include "system_bridge.h"
+#include "hle/os/os_internal.h"
 
 // Defined in hle/os/os_sleep.cpp; the sleep-timer table is file-local there.
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -51,10 +54,10 @@ std::atomic<uint32_t> g_viRetracePendingCount{0};
 namespace {
 constexpr uint32_t kOSCurrentContextAddr = 0x800000d4u;
 constexpr uint32_t kOSRunningContextAddr = 0x800000e4u;  // OSGetCurrentThread reads this
-constexpr uint32_t kThreadQueueArrayAddr = 0x803477b0u;
-constexpr uint32_t kSchedulerPendingFlagAddr = 0x80386920u;
-constexpr uint32_t kSchedulerReschedCounterAddr = 0x8038691cu;
-constexpr uint32_t kSchedulerIdleFlagAddr = 0x80386918u;
+constexpr uint32_t kThreadQueueArrayAddr = OsHleInternal::kThreadQueueArrayAddr;
+constexpr uint32_t kSchedulerPendingFlagAddr = OsHleInternal::kSchedulerPendingFlagAddr;
+constexpr uint32_t kSchedulerReschedCounterAddr = OsHleInternal::kSchedulerReschedCounterAddr;
+constexpr uint32_t kSchedulerIdleFlagAddr = OsHleInternal::kSchedulerIdleFlagAddr;
 
 // OSThread structure offsets
 constexpr uint32_t kThreadStateOffset = 0x2C8u;
@@ -347,7 +350,7 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
         RT_LOG(RT_TAG_OS) << "SwitchToThread called before initialization!" << std::endl;
         return;
     }
-    
+
     void* fiberHandle = nullptr;
     uint32_t previousThread = 0;
     CpuContext callerContext{};
@@ -370,6 +373,9 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
         }
         
         fiberHandle = it->second.fiber;
+#if defined(MKW_GAME_MP9)
+        if (it->second.resumeFiber) fiberHandle = it->second.resumeFiber;
+#endif
         
         if (!fiberHandle || it->second.terminated) {
             RT_LOG(RT_TAG_OS) << "SwitchToThread: invalid fiber for 0x"
@@ -385,6 +391,11 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
             auto currentIt = s_fibers.find(s_currentGuestThread);
             if (currentIt != s_fibers.end()) {
                 currentIt->second.cpuContext = *cpu;
+#if defined(MKW_GAME_MP9)
+                // OSThread may block from an MP9 custom task host stack.
+                // Resume that continuation; fiber remains the owned allocation.
+                currentIt->second.resumeFiber = HostContext::Current();
+#endif
             }
         }
         
@@ -417,6 +428,7 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
         // modeled through the per-host-thread MXCSR; every context restore
         // must re-mirror it.
         MkwApplyHostNiMode(cpu->fpscr);
+
     }
 
     // Switch to the target fiber (the target fiber will load its own context)
@@ -621,6 +633,13 @@ void GuestFiberManager::FiberProc(void* param)
         cpu->gpr[1] = Memory::Read32(guestThreadAddr + 0x04u);
         // Load saved LR
         cpu->lr = Memory::Read32(guestThreadAddr + 0x84u);
+#if defined(MKW_GAME_MP9)
+        // A new fiber enters through OSLoadContext's rfi contract. Inheriting
+        // the scheduler's disabled EE state strands device-completion workers.
+        cpu->srr1 = Memory::Read32(guestThreadAddr + kCtxSrr1Offset);
+        cpu->msr = cpu->srr1;
+        OS__RestoreInterrupts_801a65d4((cpu->msr & 0x8000u) != 0);
+#endif
         
     } catch (const Memory::AccessViolation& e) {
         RT_LOG(RT_TAG_OS) << "Failed to load guest context from 0x" << std::hex << guestThreadAddr
@@ -683,6 +702,16 @@ void GuestFiberManager::FiberProc(void* param)
                       << " not found in registry!" << std::dec << std::endl;
         }
     
+#if defined(MKW_GAME_MP9)
+        // A normal entry return is an OSExitThread, not a yield to the outer
+        // scheduler host stack. The main OSThread can be asleep on another
+        // custom-task continuation; select a runnable guest before resuming it.
+        std::printf("[mp9-exit] thread=%08X entry=%08X result=%08X\n",
+                    guestThreadAddr, entryPoint, cpu->gpr[3]);
+        OSExitThread_HLE_801aa0f0(cpu);
+        throw std::runtime_error("Terminated MP9 OSThread resumed after OSExitThread");
+#endif
+
         // Thread entry functions normally return into OSExitThread on hardware.
         // Our host fiber call boundary observes the return directly, so complete the
         // guest OSThread lifecycle here before handing control back to the scheduler.

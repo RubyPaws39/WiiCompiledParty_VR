@@ -177,12 +177,22 @@ static void InvokeDvdCallback(uint32_t callbackPtr, int32_t result, uint32_t fil
         return;
     }
     if (!TranslatedFunctionRegistry::FindByAddressPtr(callbackPtr)) {
+#if defined(MKW_GAME_MP9)
+        throw std::runtime_error("MP9 DVD callback is not registered: " + std::to_string(callbackPtr));
+#else
         return;
+#endif
     }
+#if defined(MKW_GAME_MP9)
+    // Same result/argument ABI as IOS callbacks; dispatch at interrupt-enable boundaries.
+    extern void NandQueueIosCallback(uint32_t, int32_t, uint32_t);
+    NandQueueIosCallback(callbackPtr, result, fileInfoPtr);
+#else
     auto& cpu = GetPersistentCpuContext();
     cpu.gpr[3] = static_cast<uint32_t>(result);
     cpu.gpr[4] = fileInfoPtr;
     InvokeIndirectCpu(callbackPtr, &cpu);
+#endif
 }
 
 // Same shape as InvokeDvdCallback minus the command block: the DVDLow callbacks
@@ -764,7 +774,11 @@ std::vector<uint8_t> DVDReadVrAsset(const char* dvdPath) {
 
 static void InitDvdWaitingQueues()
 {
+#if defined(MKW_GAME_MP9)
+    constexpr uint32_t kQueueBase = 0x802D3330;
+#else
     constexpr uint32_t kQueueBase = 0x80343230;
+#endif
     for (uint32_t i = 0; i < 4; ++i) {
         const uint32_t queue = kQueueBase + (i * 8);
         Memory::Write32(queue + 0, queue);
@@ -776,6 +790,11 @@ static void CompleteDvdCancelState()
 {
     InitDvdWaitingQueues();
 
+#if defined(MKW_GAME_MP9)
+    // Native reads complete without an outstanding physical-drive command.
+    // Full MP9 cancel/reset APIs are not bound to the MKW implementations.
+    Memory::Write32(0x8026E9F0, 0);
+#else
     // These are the SDK DVD globals used by DVDCancelAll/__DVDPrepareReset.
     // The actual drive work is HLE'd, so complete pending cancel/reset waits.
     Memory::Write32(0x80386664, 0); // Canceling
@@ -784,6 +803,7 @@ static void CompleteDvdCancelState()
     Memory::Write32(0x8038667C, 1); // CancelAllSync complete
     Memory::Write32(0x803866A8, 1); // PrepareReset complete
     Memory::Write32(0x803866F0, 0); // executing command block
+#endif
 }
 
 // 0x8015EA1C -> DVDInit
@@ -800,14 +820,27 @@ extern "C" void DVDInit_8015EA1C()
 
     // 1. Initialize Global Flags (Emulate OS state)
     // These addresses are standard OS globals for DVD context
+#if defined(MKW_GAME_MP9)
+    Memory::Write8(0x8026EA24, 1);
+    Memory::Write8(0x8026EA25, 1);
+    Memory::Write32(0x8026EA20, 0);
+    Memory::Write32(0x8026E99C, 1);
+    Memory::Write32(0x8026E930, 0);
+    Memory::Write32(0x8026E934, 0);
+#else
     Memory::Write8(0x80386724, 1);   // Contexts initialized
     Memory::Write8(0x80386725, 1);   // LowInit called
     Memory::Write32(0x80386720, 0);  // Current context index
     Memory::Write8(0x803866a0, 1);   // DVDInit called flag
+#endif
     CompleteDvdCancelState();
 
     // 2. Initialize DVD Context structures (prevent crashes in callbacks)
+#if defined(MKW_GAME_MP9)
+    constexpr uint32_t kContextBase = 0x802D35E0;
+#else
     constexpr uint32_t kContextBase = 0x803434e0;
+#endif
     constexpr uint32_t kMagicValue = 0xFEEBDAED;
     for (int i = 0; i < 4; i++) {
         uint32_t ctx = kContextBase + i * 0x20;
@@ -820,7 +853,11 @@ extern "C" void DVDInit_8015EA1C()
     uint32_t diskHeader = 0x80000000;
     Memory::Write32(diskHeader + 0x00, CurrentDiscGameCode());
     Memory::Write16(diskHeader + 0x04, 0x3031);     // '01' (Maker)
+#if defined(MKW_GAME_MP9)
+    Memory::Write8(diskHeader + 0x06, 0); // SSQE01 boot.bin: disc number zero.
+#else
     Memory::Write8(diskHeader + 0x06, 0x01);        // Disk #1
+#endif
     // 4. Scan Files
     const fs::path& rootPath = GetDvdRoot();
     
@@ -830,6 +867,9 @@ extern "C" void DVDInit_8015EA1C()
     // Map "<dvd_root>/sys" -> "/sys/" (e.g. main.dol, bi2.bin)
     ScanDirectory(rootPath / "sys", "/sys/");
 
+#if defined(MKW_GAME_MP9)
+    if (g_fileEntries.empty()) throw std::runtime_error("MP9 disc index contains no files");
+#endif
     const auto& overlays = RuntimeRiivolution::Overlays();
     if (overlays.empty() && RuntimeProduct::IsRetroRewind()) {
         RT_LOG(RT_TAG_DVD) << "WARNING: no Retro Rewind overlay root was found. "
@@ -855,10 +895,17 @@ extern "C" void DVDInit_8015EA1C()
     BuildAndPublishRuntimeFst();
 
     // Initialize the translated DVD filesystem so it can use the published FST.
+#if defined(MKW_GAME_MP9)
+    CpuContext* caller = TryGetCpuContext();
+    if (!caller) throw std::runtime_error("MP9 DVD initialization requires CPU context");
+    CpuContext fsInit = *caller;
+    InvokeDirectCpu<0x8019D170>(&fsInit);
+#else
     constexpr uint32_t kDvdFsInitAddress = 0x8015DF1C;
     if (TranslatedFunctionRegistry::FindByAddressPtr(kDvdFsInitAddress)) {
         InvokeIndirectCpu(kDvdFsInitAddress, &GetPersistentCpuContext());
     }
+#endif
 
     g_dvdInitialized = true;
     initializing = false;
@@ -868,6 +915,31 @@ PPC_NATIVE_OVERRIDE_VOID(8015EA1C, DVDInit_8015EA1C, (), ());
 // FST-only DVD functions run translated so mods can override them safely.
 
 // 0x8015E834 -> DVDReadPrio
+#if defined(MKW_GAME_MP9)
+// SSQE01 OSInit queries drive identity through this API. Send that request to
+// the same host disc service as reads instead of entering the physical DI FSM.
+extern "C" int32_t Mp9DVDInquiryAsync(uint32_t block, uint32_t output, uint32_t callback)
+{
+    DVDInit_8015EA1C();
+    if (!Memory::Contains(block, 0x30) || !Memory::Contains(output, 0x20)) return 0;
+    // Hardware inquiry layout and compatibility identity match Dolphin's
+    // DVDInterface::Inquiry reference; no drive firmware is distributed.
+    for (uint32_t i = 0; i < 0x20; i += 4) Memory::Write32(output + i, 0);
+    Memory::Write32(output, 0x00000002);
+    Memory::Write32(output + 4, 0x20060526);
+    Memory::Write32(output + 8, 0x41000000);
+    GxNotifyGuestRamDmaWrite(output, 0x20);
+    Memory::Write32(block + 8, 14);
+    Memory::Write32(block + 0x14, 0x20);
+    Memory::Write32(block + 0x18, output);
+    Memory::Write32(block + DVD_CB_OFFSET_TRANSFERRED, 0x20);
+    Memory::Write32(block + 0x28, callback);
+    Memory::Write32(block + DVD_CB_OFFSET_STATE, DVD_STATE_END);
+    InvokeDvdCallback(callback, 0x20, block);
+    return 1;
+}
+#endif
+
 extern "C" int32_t DVDReadPrio_8015E834(uint32_t fileInfoPtr, uint32_t bufferPtr, int32_t length, int32_t offset, int32_t prio)
 {
     (void)prio;

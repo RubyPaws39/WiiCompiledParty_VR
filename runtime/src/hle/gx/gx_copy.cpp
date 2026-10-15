@@ -1,5 +1,6 @@
 // gx_copy.cpp - Framebuffer Copy Operations
 #include "gx_internal.h"
+#include "runtime_log.h"
 
 #include "settings_overlay.h"
 
@@ -143,10 +144,56 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
     settings_overlay::Draw();
     // Seal, pace to the VI retrace boundary (Aurora renders the sealed frame
     // during the wait), and pre-warm the next frame.
+#if defined(MKW_GAME_MP9)
+    // MP9 waits for VI after this asynchronous GX copy. Advancing retrace
+    // here satisfies that wait before it can sleep the main OSThread,
+    // starving lower-priority workers (including the save-data thread).
+    VI_HLE_PresentFrame(/*presentedXfb=*/true, /*paceToRetrace=*/false);
+#else
     VI_HLE_PresentFrame(/*presentedXfb=*/true, /*paceToRetrace=*/true);
+#endif
 }
 
 PPC_NATIVE_OVERRIDE_VOID(8016fc38, GX__CopyDisp_8016fc38, (uint32_t da, uint32_t c), (da, c));
+
+#if defined(MKW_GAME_MP9)
+static void Mp9ApplyDisplayCopyState_gx(uint32_t source, uint32_t size,
+                                      uint32_t stride, uint32_t control) {
+    // The original GXCopyDisp emits these cached words immediately before
+    // its trigger. Aurora decodes BP52 as state, not a display/present event.
+    GXApplyBPReg(0x49, source);
+    GXApplyBPReg(0x4A, size);
+    GXApplyBPReg(0x4D, stride);
+    GXApplyBPReg(0x52, control);
+}
+extern "C" void Mp9GXCopyDisp(uint32_t destination, uint32_t clear) {
+    const uint32_t data = Memory::Read32(kGXDataPtrAddr);
+    if (!data || !Memory::Contains(data, 0x600))
+        throw std::runtime_error("MP9 GXCopyDisp has invalid GX data");
+    uint32_t control = Memory::Read32(data + 0x23C);
+    // Temporary bounded bring-up observation. Distinguish an empty game EFB
+    // from a presentation failure without changing any guest/render state.
+    static uint32_t observations = 0;
+    const uint32_t frame = observations++;
+    if (frame == 0) aurora_request_frame_capture(2400,
+        "/sdcard/Android/data/org.marioparty9.quest/files/WiiCompiledOpenXRVR/Logs/mp9-rendered-frame.bmp");
+    if (frame < 3 || (frame < 3600 && frame % 600 == 0)) {
+        RT_LOG(RT_TAG_GX) << "[mp9-copy] frame=" << frame
+            << " draw-work=" << g_auroraFrameHadWork.load(std::memory_order_acquire)
+            << " dst=0x" << std::hex << destination
+            << " src=0x" << Memory::Read32(data + 0x230)
+            << " size=0x" << Memory::Read32(data + 0x234)
+            << " stride=0x" << Memory::Read32(data + 0x238)
+            << " control=0x" << control << std::dec << std::endl;
+    }
+    control = (control & ~0x800u) | ((clear & 1u) << 11) | 0x4000u;
+    Memory::Write32(data + 0x23C, control);
+    GxThread::Post(&Mp9ApplyDisplayCopyState_gx, Memory::Read32(data + 0x230),
+        Memory::Read32(data + 0x234), Memory::Read32(data + 0x238), control);
+    Memory::Write16(data + 2, 0);
+    GX__CopyDisp_8016fc38(destination, clear);
+}
+#endif
 
 
 static void GX__CopyTex_gx(uint32_t da, uint32_t c, uint32_t srcLeft, uint32_t srcTop, uint32_t srcWidth,

@@ -105,6 +105,8 @@ bool ReadGuestRenderModeObj(uint32_t guestPtr, GXRenderModeObj& out) {
 
 struct ViState {
     bool initialized = false;
+    uint32_t scanMode = 0; // Active VI mode: interlaced, non-interlaced, progressive.
+    uint32_t pendingScanMode = 0;
     uint32_t tvFormat = 0; // VIGetTvFormat returns VI_NTSC before VIInit
     uint32_t nextFrameBuffer = 0;
     uint32_t currentFrameBuffer = 0;
@@ -152,6 +154,22 @@ ViState g_vi;
 
 
 // Guest-side state addresses used by the SDK's VI globals.
+#if defined(MKW_GAME_MP9)
+// SSQE01 VI state verified against original init, setters and retrace wait.
+constexpr uint32_t kViInitializedFlagAddr   = 0x8026E7F8;
+constexpr uint32_t kViTvFormatAddr          = 0x8026E868;
+constexpr uint32_t kViRenderWidthAddr       = 0x802CDC84;
+constexpr uint32_t kViRenderHeightAddr      = 0x802CDC86;
+constexpr uint32_t kViXfbWidthAddr          = 0x802CDC92;
+constexpr uint32_t kViXfbHeightAddr         = 0x802CDC9C;
+constexpr uint32_t kViRetraceCountAddr      = 0x8026E8A4;
+constexpr uint32_t kViTimingGuardAddr       = 0x8026E804;
+constexpr uint32_t kViPreRetraceCallback    = 0x8026E878;
+constexpr uint32_t kViPostRetraceCallback   = 0x8026E874;
+constexpr uint32_t kViNextFrameBufferAddr   = 0x8026E864;
+constexpr uint32_t kViNextFrameBufferHwAddr = 0x802CDCB0;
+constexpr uint32_t kViRetraceQueueAddr      = 0x8026E880;
+#else
 constexpr uint32_t kViInitializedFlagAddr   = 0x80386b38;
 constexpr uint32_t kViTvFormatAddr          = 0x80386ba8;
 constexpr uint32_t kViRenderWidthAddr       = 0x80350864;
@@ -165,6 +183,8 @@ constexpr uint32_t kViPostRetraceCallback   = 0x80386bb4;
 constexpr uint32_t kViNextFrameBufferAddr   = 0x80386ba0;
 constexpr uint32_t kViNextFrameBufferHwAddr = 0x80350890;
 constexpr uint32_t kViRetraceQueueAddr      = 0x80386bc0; // Thread queue for VIWaitForRetrace
+
+#endif
 
 // EGG::BaseSystem::sSystem pointer - must be non-null before post-retrace callback is valid
 constexpr uint32_t kEggSSystemAddr = 0x80386F60;
@@ -239,8 +259,13 @@ void ViSetR3(CpuContext* ctx, uint32_t value)
 
 void WriteGuestStateLocked() {
     try {
+#if defined(MKW_GAME_MP9)
+        Memory::Write32(kViInitializedFlagAddr, 1);
+        Memory::Write32(kViTimingGuardAddr, 1);
+#else
         Memory::Write8(kViInitializedFlagAddr, 1);
         Memory::Write8(kViTimingGuardAddr, 1);
+#endif
         Memory::Write32(kViTvFormatAddr, g_vi.tvFormat);
         Memory::Write16(kViRenderWidthAddr, static_cast<uint16_t>(g_vi.renderWidth));
         Memory::Write16(kViRenderHeightAddr, static_cast<uint16_t>(g_vi.renderHeight));
@@ -250,7 +275,13 @@ void WriteGuestStateLocked() {
         Memory::Write32(kViPreRetraceCallback, g_vi.preRetraceCallback);
         Memory::Write32(kViPostRetraceCallback, g_vi.postRetraceCallback);
         // Write PENDING frame buffer to guest memory so SDK code sees the queued value
+#if defined(MKW_GAME_MP9)
+        Memory::Write32(0x8026E860, g_vi.currentFrameBuffer);
+        Memory::Write32(kViNextFrameBufferAddr,
+            g_vi.flushArmed ? g_vi.pendingNextFrameBuffer : g_vi.nextFrameBuffer);
+#else
         Memory::Write32(kViNextFrameBufferAddr, g_vi.pendingNextFrameBuffer);
+#endif
         Memory::Write32(kViNextFrameBufferHwAddr, g_vi.pendingNextFrameBuffer);
     } catch (const ::Memory::AccessViolation& e) {
         LogMemoryError(RT_TAG_VI, "WriteGuestStateLocked", e);
@@ -306,6 +337,7 @@ void AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool servic
             g_vi.nextFrameBuffer = g_vi.pendingNextFrameBuffer;
             g_vi.black = g_vi.pendingBlack;
             g_vi.tvFormat = g_vi.pendingTvFormat;
+            g_vi.scanMode = g_vi.pendingScanMode;
             g_vi.renderWidth = g_vi.pendingRenderWidth;
             g_vi.renderHeight = g_vi.pendingRenderHeight;
             g_vi.viXOrigin = g_vi.pendingViXOrigin;
@@ -362,7 +394,12 @@ void AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool servic
         if (postCb) {
             // Guard: only invoke callback if sSystem is initialized
             // The callback dereferences sSystem which must be non-null
+#if defined(MKW_GAME_MP9)
+            // MP9 callbacks do not depend on Mario Kart's EGG singleton.
+            uint32_t sSystemPtr = 1;
+#else
             uint32_t sSystemPtr = Memory::Read32(kEggSSystemAddr);
+#endif
             if (sSystemPtr != 0) {
                 InvokeIndirectCpu(postCb, ctx);
             }
@@ -767,6 +804,11 @@ void VI_HLE_SetXfbReady(uint32_t xfbAddr) {
 // VIInit (0x801B94A4) and its lower-level helper __VIInit (0x801B9294) both
 // program MMIO at 0xCC0020xx on hardware. We skip all hardware access and seed
 // the same defaults instead, so the two entry points share one body.
+extern "C" uint32_t VIGetHostTvFormat() {
+    std::lock_guard<std::mutex> lock(g_viMutex);
+    return g_vi.tvFormat;
+}
+
 static void SeedViStateForInit(CpuContext* ctx, const char* who)
 {
     RT_LOG(RT_TAG_VI) << who << " called: seeding VI state (HLE)" << std::endl;
@@ -884,6 +926,7 @@ extern "C" void VIConfigure_HLE_801b9f6c(CpuContext* ctx)
 
         // Write to PENDING state - will be committed on next retrace after VIFlush
         g_vi.pendingTvFormat = decodedTvFormat;
+        g_vi.pendingScanMode = static_cast<uint32_t>(renderMode.viTVmode) & 3u;
         g_vi.pendingRetraceInterval = IntervalForFormat(g_vi.pendingTvFormat);
         g_vi.pendingRenderWidth =
             renderMode.viWidth != 0 ? renderMode.viWidth : renderMode.fbWidth;
@@ -929,6 +972,9 @@ extern "C" void VIFlush_HLE_801ba9a4(CpuContext* ctx)
         
         // Arm only; the commit happens at the next retrace (see ViState).
         g_vi.flushArmed = true;
+#if defined(MKW_GAME_MP9)
+        WriteGuestStateLocked();
+#endif
     }
 
     // NOTE: We do NOT set hasValidXfb here. Frame readiness is signaled ONLY by
@@ -1076,3 +1122,21 @@ extern "C" void VIWaitForRetrace_HLE_801b99ec(CpuContext* ctx)
     ViSetR3(cpu, 0);
 }
 PPC_NATIVE_OVERRIDE_VOID(801B99EC, VIWaitForRetrace_HLE_801b99ec, (CpuContext* ctx), (ctx));
+
+#if defined(MKW_GAME_MP9)
+extern "C" void Mp9VIGetScanMode(CpuContext* ctx) {
+    std::lock_guard<std::mutex> lock(g_viMutex);
+    EnsureInitializedLocked();
+    ViSetR3(ctx, g_vi.scanMode);
+}
+extern "C" void Mp9VIGetCurrentFrameBuffer(CpuContext* ctx) {
+    VI_HLE_PollRetrace(ctx);
+    uint32_t current;
+    {
+        std::lock_guard<std::mutex> lock(g_viMutex);
+        EnsureInitializedLocked();
+        current = g_vi.currentFrameBuffer;
+    }
+    ViSetR3(ctx, current);
+}
+#endif

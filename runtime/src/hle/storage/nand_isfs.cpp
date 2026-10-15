@@ -1057,6 +1057,32 @@ extern "C" int32_t NAND_IOS_Ioctlv_HLE(
         }
 
         switch (cmd) {
+            case 0x1D: { // ES_GETTITLEDIR: title ID -> virtual NAND data path.
+                if (numIn != 1 || numOut != 1) return ISFS_EINVAL;
+                const IosVector in = ReadIosVector(vectorPtr, 0);
+                const IosVector out = ReadIosVector(vectorPtr, 1);
+                if (!in.address || in.size != 8 || !Memory::Contains(in.address, 8) || !out.address) {
+                    return ISFS_EINVAL;
+                }
+                char path[32];
+                const int length = std::snprintf(path, sizeof(path), "/title/%08x/%08x/data",
+                    Memory::Read32(in.address), Memory::Read32(in.address + 4));
+                if (length < 0 || static_cast<size_t>(length) >= sizeof(path) ||
+                    !WriteGuestBytes(out.address, out.size, reinterpret_cast<const uint8_t*>(path), length + 1)) {
+                    return ISFS_EINVAL;
+                }
+#if defined(MKW_GAME_MP9)
+                // IOS title launch provisions the active title's data home.
+                // Keep original NANDSafeOpen/rename semantics and existing saves.
+                const uint64_t title = (static_cast<uint64_t>(Memory::Read32(in.address)) << 32) |
+                                       Memory::Read32(in.address + 4u);
+                if (title == CurrentMkwTitleId() && !CreateDirectoryPath(TranslateNandPath(path))) {
+                    LogNandError("ES_GETTITLEDIR", "could not provision '%s'", path);
+                    return ISFS_EIO;
+                }
+#endif
+                return ISFS_OK;
+            }
             case ES_IOCTL_GETDEVICEID: {
                 if (numIn != 0 || numOut != 1) {
                     return ISFS_EINVAL;

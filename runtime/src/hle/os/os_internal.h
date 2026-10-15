@@ -24,7 +24,11 @@ extern std::atomic<bool> g_interrupts_enabled;
 // observable state, not just bookkeeping.
 extern std::atomic<uint32_t> g_interrupt_mask;
 
+#if defined(MKW_GAME_MP9)
+constexpr uint32_t kInterruptHandlerTablePtrAddr = 0x8026e718u;
+#else
 constexpr uint32_t kInterruptHandlerTablePtrAddr = 0x803868f8u;
+#endif
 constexpr uint32_t kInterruptHandlerTableAddr = 0x80003040u;
 constexpr size_t kInterruptHandlerTableBytes = 0x80u;
 constexpr uint32_t kInterruptMaskLoAddr = 0x800000c4u;
@@ -36,6 +40,15 @@ constexpr uint32_t kThreadListHeadAddr = 0x800000dcu;    // First thread in thre
 constexpr uint32_t kThreadListTailAddr = 0x800000e0u;    // Last added thread (tail of thread list)
 constexpr uint32_t kOSRunningContextAddr = 0x800000e4u;  // Currently running thread context
 
+#if defined(MKW_GAME_MP9)
+constexpr uint32_t kDefaultThreadContextAddr = 0x802CCAD8u;
+constexpr uint32_t kIdleThreadContextAddr = 0x802CCEF0u;
+constexpr uint32_t kThreadQueueArrayAddr = 0x802CCDF0u;
+constexpr uint32_t kSwitchThreadCallbackPtrAddr = 0x8026DE00u;
+constexpr uint32_t kSchedulerReschedCounterAddr = 0x8026E744u;
+constexpr uint32_t kSchedulerPendingFlagAddr = 0x8026E748u;
+constexpr uint32_t kSchedulerIdleFlagAddr = 0x8026E740u;
+#else
 constexpr uint32_t kDefaultThreadContextAddr = 0x80347498u;
 constexpr uint32_t kIdleThreadContextAddr = 0x803478b0u;
 constexpr uint32_t kThreadQueueArrayAddr = 0x803477b0u;
@@ -46,7 +59,15 @@ constexpr uint32_t kSchedulerPendingFlagAddr = 0x80386920u;
 // RVL OS uses this as the OSDisableScheduler/OSEnableScheduler nesting count.
 // SelectThread exits early while the count is non-zero.
 constexpr uint32_t kSchedulerIdleFlagAddr = 0x80386918u;
+#endif
+#if defined(MKW_GAME_MP9)
+constexpr size_t kThreadQueueArrayBytes = 0x100u;
+#endif
+#if defined(MKW_GAME_MP9)
+constexpr uint32_t kAlarmQueueOffsetFromR13 = 0x7138u;
+#else
 constexpr uint32_t kAlarmQueueOffsetFromR13 = 0x6360u;
+#endif
 
 constexpr uint32_t kThreadStateOffset = 0x2C8u;
 constexpr uint32_t kThreadAttrOffset = 0x2CAu;

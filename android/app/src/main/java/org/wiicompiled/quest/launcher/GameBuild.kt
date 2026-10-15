@@ -75,6 +75,9 @@ object GameBuild {
 
     /** Builds [profile]'s game. Null on success, otherwise the message to show. */
     fun run(context: Context, profile: GameProfile, reporter: Reporter, cancelled: () -> Boolean, finishing: () -> Unit): String? {
+        if (BuildConfig.DISC_GAME_ID == MarioParty9DiscPins.GAME_ID) {
+            return "Mario Party 9 native game build is not ready yet. Your imported disc will be kept."
+        }
         if (!BuildConfig.ON_DEVICE_BUILD) {
             return "This app cannot build its game on the headset. Build it on a computer and use Import from computer."
         }

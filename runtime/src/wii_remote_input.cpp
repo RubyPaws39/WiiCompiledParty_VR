@@ -536,11 +536,21 @@ static bool IsVrControllerGamepad(SDL_Gamepad* gamepad) {
     return gamepad != nullptr && mkw::vr::OpenXRWiiRemoteOwnsGamepad(SDL_GetGamepadID(gamepad));
 }
 
+#if defined(MKW_GAME_MP9)
+static constexpr Kind kVrRemoteKind = Kind::Remote;
+#else
+#if defined(MKW_GAME_MP9)
+static constexpr Kind kVrRemoteKind = Kind::Remote;
+#else
+static constexpr Kind kVrRemoteKind = Kind::RemoteWithNunchuk;
+#endif
+#endif
+
 // Kind of an SDL gamepad: the VR controllers are a remote with a Nunchuk, every
 // other device is classified by the name SDL gives it.
 static Kind KindForGamepad(SDL_Gamepad* gamepad) {
     if (gamepad == nullptr) return Kind::NotWii;
-    if (IsVrControllerGamepad(gamepad)) return Kind::RemoteWithNunchuk;
+    if (IsVrControllerGamepad(gamepad)) return kVrRemoteKind;
     return KindForName(SDL_GetGamepadName(gamepad));
 }
 
@@ -635,12 +645,12 @@ int16_t ClassicStickRaw(Sint16 axis, bool invert) {
 static void ReadVrControllerSample(uint32_t chan, KpadSample& sample) {
     mkw::vr::OpenXRWiiRemoteSample vr;
     if (!mkw::vr::OpenXRReadWiiRemote(vr)) {
-        FillGraceSample(chan, Kind::RemoteWithNunchuk, sample);
+        FillGraceSample(chan, kVrRemoteKind, sample);
         return;
     }
     sample = {};
     sample.hold = vr.hold;
-    sample.hasNunchuk = true;
+    sample.hasNunchuk = kVrRemoteKind == Kind::RemoteWithNunchuk;
     for (int i = 0; i < 3; ++i) {
         sample.acc[i] = vr.acc[i];
         sample.nunchukAcc[i] = vr.nunchuk_acc[i];

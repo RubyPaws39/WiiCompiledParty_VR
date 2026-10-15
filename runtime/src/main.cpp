@@ -1619,6 +1619,9 @@ int RuntimeMain(int argc, char** argv) {
     }
 }
 
+#if defined(MKW_GAME_MP9) && defined(__ANDROID__)
+__attribute__((visibility("default")))
+#endif
 int main(int argc, char** argv) {
     return RuntimeMain(argc, argv);
 }

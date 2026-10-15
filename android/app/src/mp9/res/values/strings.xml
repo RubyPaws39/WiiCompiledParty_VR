@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mario Party 9 Native Prototype</string>
+    <string name="home_title_base">Mario Party 9</string>
+    <string name="missing_game_data_message">Import your own supported USA SSQE01 Mario Party 9 disc image. Game data and game code are not included.</string>
+    <string name="home_data_missing">Game files missing. Select your own USA SSQE01 disc image to extract them.\n\nData directory:\n%1$s</string>
+    <string name="home_setup_intro">Experimental native boot prototype. Gameplay, VR motion controls, and multiplayer are unfinished.\n\nImport your own USA SSQE01 Mario Party 9 disc. No game code or game data comes with this APK. A separately compiled private native library is also required; building Mario Party 9 on this headset is not yet supported.</string>
+    <string name="home_checking_status">Checking supported Mario Party 9 disc revision.</string>
+    <string name="about_app_name">Mario Party 9 Native Prototype</string>
+    <string name="about_app_summary">WiiCompiled native boot development build for Mario Party 9. Requires your own disc and separately compiled game library. Gameplay is not yet functional.</string>
+    <string name="about_extract_helper">Extracts and verifies your supported USA SSQE01 disc image.</string>
+    <string name="disc_md5_note">This build validates the disc ID and SHA-256 hashes of main.dol and all 115 game modules.</string>
+    <string name="about_disc_md5">Disc revision verification</string>
+</resources>
