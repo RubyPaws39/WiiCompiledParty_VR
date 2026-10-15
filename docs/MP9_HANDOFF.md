@@ -1,54 +1,21 @@
 # MuseSpark continuation prompt
 
-Continue Mario Party 9 native Quest 3 work in `R:\MarioParty9VR`. Read local
-`MUSE_SPARK_HANDOFF.md`, `MODLOG.md`, and `README.md` first; those contain the full
-machine-specific evidence and newest logs. This public document is a concise source-only handoff.
+Continue native Mario Party 9 Quest 3 port in R:\MarioParty9VR using Wiicompiled_VR AOT + Aurora. Read MUSE_SPARK_HANDOFF.md, MODLOG.md, README.md first. Preserve existing commits and uncommitted work. Keep strict guest/MMIO checks enabled. Never fake pointers, skip original logic, use runtime interpretation, or call the current build playable.
 
-User requirements: standalone native ARM64 APK through Wiicompiled_VR AOT + Aurora;
-real Quest buttons, pointing, shake and rotation controls; world-fixed menu with
-recenter/control adjustment; immersive gameplay and scenes; later online lobbies,
-friend identities and persistent stats. Keep work/cache on R:. Public APK requires
-users' own verified ROM and must include no Nintendo executable, translated code,
-assets, saves or private package. Existing private local owned dump/import is authorized.
+User priority: fix original game graphics and progression, then physical VR motion controls. Current world-fixed virtual screen is not immersive gameplay. Online/profile/stat systems and public on-device native code generation remain incomplete. Public APK/source must contain no ROM, game assets, saves, translated Nintendo code, or private wcgame. Local owned dump use is authorized. Work/cache stays on R:.
 
-Verified frontier: original save screen and MP9 title display in headset. A+B reaches
-menu transition. Native menu.rel coverage fixed missing dispatch key A2015AB0;
-next strict failure is original Mobiclip switch target800F51C8 within fn800F4570.
-JumpTableDetector followed a stale compare on r0 rather than logical selector r31;
-slwi/rlwinm source tracking fixes nine-case recognition. Both new tests fail before
-fix and all658 translator tests pass after. Generated code contains missing case.
+Latest verified state: title and main menu open. Route used for testing is main menu -> Solo -> mode information -> character selection. Mode preview and all portraits are blank; welcome scene geometry explodes. Selecting character/OK previously went black with music, then strict missing A5C01F60 from mg9409.rel was recorded. New private mg9409 generation adds 885 entries; merge has five modules and 13,033 entries. Check work/build-mg9409.log and device actual installed state before deployment claims. Build and ROM-free APK audit passed; llvm-nm confirms func_A5C01F60 in the private ELF. New library not deployed because adb reports device offline. A final cleanup rebuild work/build-mg9409-checkpoint.log removes the ineffective MP9 canonicalization experiment; check its final result before deployment.
 
-Before further runtime fixes, finish fresh-metadata rebuild. Earlier Recompile script
-omitted --output-metadata, so updated C++ retained stale call declarations and failed
-compilation. Recompile now explicitly regenerates base_translation_output.json;
-task lowering refreshes modified source hashes and REL merge checks hashes. Do not
-hand-edit generated C++ or weaken ABI/guest/MMIO checks. New relevant logs:
-work/recompile-fresh-metadata.log and work/build-fresh-metadata.log. Requery actual
-build/device state rather than assuming a previous PID or installation is current.
+Strong graphics evidence: work/quest-indexed-perspective-fresh.log shows valid perspective projection, valid finite BE position array, correct indexed formats, and garbage active PN0 position/normal matrices. Earlier logs without 'fresh' cached pre-Continue SBValues and show stale state. Source upload capture work/matrix-upload-report.txt is inconclusive because optimized copy_xf_data parameters reported impossible len=0. Do not infer a game len=0 fault. New synchronous hardware-watch stack work/matrix-watch-report.txt reaches copy_xf_data <- handle_xf <- HleFifoWrite <- MemoryInline::Write64Slow <- paired-single store <- original func_8019C430 <- func_80170850. Register/memory reads failed and detach reported disconnect; use stack as lead, not proof of corruption origin. Next: inspect actual source matrix bytes at entry 8019C430 and actual FIFO payload, trace producer 80191D30 / 80170850. Watchpoint conditions using expression/JIT proved fragile.
 
-Build: projects/mp9/README.md describes private workspace scripts. Full rebuild needs
-explicit WiiCompiled ninja target after Gradle. Frozen shard cuts previously packed
-new menu functions into a100MB C++ file; repacking produced balanced72 shards,1.23x
-spread. Recompile -RepackShards preserves old map when deliberate repacking is needed.
+Graphics changes currently preserved, not confirmed fixes: live VAT repair; layout-only CP scanner synchronization; all-descriptor VCD live restoration including NONE; GXSetTexCopySrc/Dst/CopyTex SDK bindings; bounded diagnostic logs in gx_dl.cpp, gx_copy.cpp, command_processor.cpp. User reports same broken image after each. Do not continue random cache fixes. Native copy calls now execute, but previews remain blank. Remove temporary diagnostics before final delivery.
 
-Accepted runtime changes include texture SDK bindings; copied TLUT descriptors;
-MP9 title/home identity; exact custom-task host/FPR context; actual outgoing OSThread
-host continuation; OSExitThread on native thread return; copy-side VI pacing disabled
-for MP9 so original wait yields; optional Mario Kart volume helper disabled for MP9
-because it followed foreign SoundManager addresses. Removing that helper's foreign
-memory reads/writes eliminated the prior audio-poll memory fault. Do not re-enable
-Mario Kart-specific pointer walks without verified MP9 structures.
+Temporary device config sets [video] gx_thread=false. This failed to fix visuals but made upload backtrace include original game caller. Original backup work/quest-config-before-sync-gx.toml; restore after tracing, chmod 664 on device config after adb push. Last sync process PID15849 failed missing mg9409; later debug process PID16938 used old installed library. Query current PID and maps. Existing ELF can change during build; never resolve old PID with new library.
 
-Controls: right A=WiiA, right trigger=WiiB, left X=1, right B=2, left stick=D-pad,
-left menu/thumbclick=Plus, left trigger=Minus, both grips=Home, left Y=settings,
-right thumbclick=recenter. Bare Wii Remote profile; real OpenXR motion path retained.
-Startup audio stutters; not declared fixed. No physical minigame validation yet.
+Build scripts: projects/mp9 contains source-only copies to stage into local work/. Recompile regenerates matching --output-metadata; lowerer refreshes hashes; merge validates DOL source hashes and copies changed RELs only. New module generation completed, merge and explicit shard repack completed, 72 shards weight spread 1.40x. Full Build-Mp9Apk explicitly invokes WiiCompiled ninja after Gradle kit probe. Header changes require touching all shard C++ files. Deploy-PrivateQuestGame must not use PowerShell *> redirection. Capture existing device logs before deploy clears logcat. LibraryOnly package preserves installed owned game data.
 
-Preserve existing work and saves. Debugger must detach even on failure; never leave
-headset paused. Temporary IOS/exit/native-unwind tracing removed; bounded display-copy
-capture may remain. No fake pointers, skipped game logic, silent missing functions,
-zero-backed hardware registers, or launcher-only “playable” claims. Keep local patch
-synced against pinned upstream4dc213cc7e0dfed5f6bb1c4541c2fb6ed5992904, not against
-an arbitrary later clean fork HEAD. GitHub already has independent MP9 commits;
-preserve those commits and inspect changes before pushing. Record exact verified
-behavior and limitations, then provide user a current handoff before context runs out.
+Current evidence/logs: work/recompile-mg9409.log, work/build-mg9409.log, work/quest-sync-gx-transcript/console.log and crash_missing_target.txt, work/quest-indexed-perspective-fresh.log, work/matrix-watch-report.txt. Transcripts/memory dumps and generated files remain private. Latest app image is not proven repaired. Root handoff tracks final deployment state.
+
+Controls: right A=Wii A, right trigger=Wii B, left X=1, right B=2, left stick=D-pad, left menu/thumbclick=Plus, left trigger=Minus, both grips=Home; left Y=settings, right thumbclick=recenter. Real OpenXR motion path remains. No physical minigame verification yet. Startup audio queue stutters remain.
+
+Existing draft PR #1 in RubyPaws39/WiiCompiledParty_VR uses branch codex/mp9-build-metadata-handoff, base openxr-work. Update existing PR, preserve unrelated commits. Patch local patches/0001-mp9-runtime-disc-gate.patch must diff pinned upstream 4dc213cc7e0dfed5f6bb1c4541c2fb6ed5992904 and pass git apply --check --reverse. No finished APK/release claim. Public source checkpoint is incomplete development work.

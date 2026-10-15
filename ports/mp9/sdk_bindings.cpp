@@ -62,6 +62,9 @@ extern "C" void GX__SetGPFifo_8016cb2c(uint32_t fifo);
 extern "C" void __GX__PEInit_8016ee14();
 extern "C" void GX__DrawDone_8016eab0();
 extern "C" void Mp9GXCopyDisp(uint32_t destination, uint32_t clear);
+extern "C" void GX__SetTexCopySrc_8016f478(uint32_t left, uint32_t top, uint32_t width, uint32_t height);
+extern "C" void GX__SetTexCopyDst_8016f4dc(uint32_t width, uint32_t height, uint32_t format, uint32_t mipmap);
+extern "C" void GX__CopyTex_8016fd74(uint32_t destination, uint32_t clear);
 extern "C" void GX__InitTexObjCI_80170a04(uint32_t object, uint32_t data, uint32_t width, uint32_t height, uint32_t format, uint32_t wrapS, uint32_t wrapT, uint32_t mipmap, uint32_t tlut);
 extern "C" void GX__LoadTexObj_80170f2c(uint32_t object, uint32_t map);
 extern "C" void GX__InitTlutObj_80170f80(uint32_t object, uint32_t data, uint32_t format, uint32_t entries);
@@ -486,6 +489,12 @@ REGISTER_NATIVE_FUNCTION(0x80194A10, GX__SetGPFifo_8016cb2c);
 REGISTER_NATIVE_FUNCTION(0x80196980, __GX__PEInit_8016ee14);
 REGISTER_NATIVE_FUNCTION(0x80196560, GX__DrawDone_8016eab0);
 REGISTER_NATIVE_FUNCTION(0x80197830, Mp9GXCopyDisp);
+// These three entries form one texture-copy frontend. The native producer
+// retains the original source/destination arguments and performs the ordered
+// GPU resolve; raw BP52 decoding alone only records the control register.
+REGISTER_NATIVE_FUNCTION(0x80197040, GX__SetTexCopySrc_8016f478);
+REGISTER_NATIVE_FUNCTION(0x801970B0, GX__SetTexCopyDst_8016f4dc);
+REGISTER_NATIVE_FUNCTION(0x80197970, GX__CopyTex_8016fd74);
 
 extern "C" void Mp9GXInit(CpuContext* ctx) {
     const uint32_t fifo = GX__Init_8016b850(ctx->gpr[3], ctx->gpr[4]);
