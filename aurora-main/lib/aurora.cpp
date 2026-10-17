@@ -984,7 +984,9 @@ std::optional<PendingFrameCapture> encode_frame_capture(const wgpu::CommandEncod
   if (requestedFrame == UINT32_MAX || currentFrame < requestedFrame)
     return std::nullopt;
   g_captureFrame.store(UINT32_MAX, std::memory_order_release);
-  if (currentFrame != requestedFrame) {
+  // Frame zero also serves as a request for the next available frame, allowing
+  // development tools to capture without racing the render frame counter.
+  if (requestedFrame != 0 && currentFrame != requestedFrame) {
     Log.error("Missed requested frame capture {} (current frame {})", requestedFrame, currentFrame);
     return std::nullopt;
   }

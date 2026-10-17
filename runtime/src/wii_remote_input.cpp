@@ -10,6 +10,8 @@
 #include <SDL3/SDL_log.h>
 #include <SDL3/SDL_sensor.h>
 #include <SDL3/SDL_timer.h>
+#include <SDL3/SDL_system.h>
+#include <aurora/aurora.h>
 
 #include <algorithm>
 #include <array>
@@ -35,6 +37,57 @@ constexpr uint64_t kFastScanWindowMs = 15000;
 constexpr uint64_t kRescanDriverOffMs = 100;
 
 constexpr float kStandardGravity = 9.80665f;
+
+#if defined(MKW_GAME_MP9) && defined(__ANDROID__)
+// Temporary opt-in developer controller. App-private commands require adb
+// run-as on the debuggable APK. No file means normal physical input unchanged.
+// Format: sequence buttons x y duration_ms capture. Buttons expire in <=2s;
+// the override expires one second later, even if the command file remains.
+bool ReadDeveloperSample(KpadSample& sample) {
+    static uint64_t lastPoll = 0, lastSequence = 0, releaseAt = 0;
+    static bool active = false;
+    static KpadSample cached{};
+    const uint64_t now = SDL_GetTicks();
+    if (now - lastPoll >= 50) {
+        lastPoll = now;
+        const char* internal = SDL_GetAndroidInternalStoragePath();
+        if (!internal) return false;
+        std::ifstream command(std::string(internal) + "/debug-tools/wii-input.txt");
+        uint64_t sequence = 0;
+        uint32_t buttons = 0, duration = 0, capture = 0;
+        float x = 0, y = 0;
+        const bool valid = bool(command >> sequence >> buttons >> x >> y >> duration >> capture) &&
+                 std::isfinite(x) && std::isfinite(y) && x >= -1.f && x <= 1.f && y >= -1.f && y <= 1.f;
+        if (!valid) active = false;
+        if (valid && sequence != lastSequence) {
+            active = true;
+            lastSequence = sequence;
+            cached = {};
+            cached.hold = buttons & 0x9f1fu;
+            cached.acc[1] = -1.f;
+            cached.dpdValid = true;
+            cached.pos[0] = x;
+            cached.pos[1] = y;
+            cached.dist = 2.f;
+            releaseAt = now + std::min(duration, 2000u);
+            if (capture) {
+                const std::string output = std::string(internal) + "/debug-tools/game-frame.bmp";
+                aurora_request_frame_capture(0, output.c_str());
+            }
+            RT_LOG(RT_TAG_RUNTIME) << "[mp9-dev-input] seq=" << sequence << " buttons=" << cached.hold
+                                   << " x=" << x << " y=" << y << std::endl;
+        }
+    }
+    if (active && now >= releaseAt + 1000) {
+        active = false;
+        RT_LOG(RT_TAG_RUNTIME) << "[mp9-dev-input] expired; physical input restored" << std::endl;
+    }
+    if (!active) return false;
+    sample = cached;
+    if (now >= releaseAt) sample.hold = 0;
+    return true;
+}
+#endif
 
 // SDL's Wii driver posts the remote's own buttons as raw joystick buttons
 // starting at SDL_GAMEPAD_BUTTON_MISC1, in this order (SDL_hidapi_wii.c,
@@ -586,6 +639,10 @@ static bool IsKpadKind(Kind kind) {
 // overlay's Draw all run there), so the port memory needs no locking.
 Kind EffectiveKind(uint32_t chan) {
     if (chan >= PAD_MAX_CONTROLLERS) return Kind::NotWii;
+#if defined(MKW_GAME_MP9) && defined(__ANDROID__)
+    KpadSample developerSample;
+    if (chan == 0 && ReadDeveloperSample(developerSample)) return Kind::Remote;
+#endif
     PortMemory& memory = g_ports[chan];
     SDL_Gamepad* gamepad = SDL_GetGamepadFromPlayerIndex(static_cast<int>(chan));
     const Kind live = KindForGamepad(gamepad);
@@ -675,6 +732,9 @@ bool ReadKpadSample(uint32_t chan, KpadSample& sample) {
     if (chan >= PAD_MAX_CONTROLLERS) {
         return false;
     }
+#if defined(MKW_GAME_MP9) && defined(__ANDROID__)
+    if (chan == 0 && ReadDeveloperSample(sample)) return true;
+#endif
     SDL_Gamepad* gamepad = SDL_GetGamepadFromPlayerIndex(static_cast<int>(chan));
     if (IsVrControllerGamepad(gamepad)) {
         ReadVrControllerSample(chan, sample);

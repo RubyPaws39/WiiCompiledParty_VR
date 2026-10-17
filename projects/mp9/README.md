@@ -34,3 +34,15 @@ The public APK's end-to-end on-device native code generation remains unfinished.
 
 All translated outputs and `.wcgame` packages stay private. These scripts do not make
 the current game playable; see [status](../../docs/MP9_STATUS.md) and [handoff](../../docs/MP9_HANDOFF.md).
+
+## Locked-cache DMA regression
+
+`Test-Mp9LcSprDma.cpp` links the production `runtime/src/ppc_helpers.cpp` with checked synthetic memory. Compile with the Android NDK using `-std=c++20 -O2 -ffunction-sections -fdata-sections -DMKW_GAME_MP9 -Iruntime/include -Wl,--gc-sections -static-libstdc++`, then run the ARM64 executable through adb. Old runtime fails the first store assertion; repaired runtime passes load/store, count encoding, zero-length encoding, cache wrap, flush/trigger behavior and invalid-range rejection.
+
+## Developer controller and fresh captures
+
+`Drive-Mp9DebugInput.py` is an opt-in local debugging tool for the debuggable MP9 APK. It writes app-private `debug-tools/wii-input.txt` using adb run-as; normal KPAD handles buttons and pointing. Button holds expire after at most two seconds; the input override expires one second later, even if its command file remains. `--disable` deletes the command file immediately. Replay always disables the override on exit. `--capture` requests the next rendered game frame, deletes the old device image first, and waits for a complete new BMP; a stalled guest raises an error instead of returning an old image.
+
+Example: `python Drive-Mp9DebugInput.py --buttons 0xc00 --press-ms 300` presses Wii A+B. Pointer coordinates range from -1 to 1; right/down are positive. `--capture --output R:/MarioParty9VR/work/frame.bmp` captures game output. These tools are temporary developer support, not gameplay controls or an end-user importer.
+
+`Replay-Mp9Solo.py` sends ordinary inputs and verifies each menu header against local private reference captures before continuing. `--characters` stops at character selection; `--from-main` and `--from-characters` resume verified menu routes. Header edges tolerate restored background graphics; references remain private captures. Reference BMPs listed in the script remain local and are not distributed; a fresh maintainer workspace must capture its own references. Matching headers verifies menus reached, not successful gameplay after Start.

@@ -1,20 +1,25 @@
-# MP9 Quest development status
+# MP9 Quest development status — 2026-10-16
 
-Standalone ARM64 static recompilation through Wiicompiled_VR and Aurora. **Not playable yet.**
+Native ARM64 static recompilation through Wiicompiled_VR AOT + Aurora. **Not playable yet.**
 
-Verified on Quest 3, 2026-10-15:
+## Verified on Quest 3
 
-- Original save screen, title, and main menu render. User confirmed main menu opens after holding right A + right trigger.
-- Movie decoder switch-table analysis fixed; both regressions failed before correction and all 658 translator tests passed after correction.
-- Solo mode information preview and all character portraits remain blank. Welcome scene has severely distorted geometry. Repeated graphics experiments have not repaired these symptoms.
-- Original save worker writes save.dat in correct SSQE01 title home; banner errors remain and save reliability is unverified.
-- Button mapping and motion primitives pass ARM64 tests. Physical minigame controls remain unverified.
-- Five REL modules now have private generated coverage: Introduction, strap, menu_title, menu, mg9409. Latest merge: 13,033 entries; mg9409 adds 885. Native build and APK audit passed in work/build-mg9409.log; ELF contains func_A5C01F60. New library has not been deployed: adb currently reports device offline.
+- Original title, welcome scene, main menu, Solo information screen, character selection and Toad Road setup render.
+- Exploding 3D geometry was caused by missing locked-cache DMA through SPR922/923. Checked DMA now transfers the original matrix palettes into RAM. Fresh captures show castle, landscape, Mario and Toad correctly.
+- Blank Solo preview, character portraits and menu background were caused by omitted guest GX texture metadata. The native texture loader now mirrors image0/mode0 into the original SDK shadow. Original coordinate-size code can therefore size secondary texture masks correctly. Fresh captures show all ten portraits and Solo preview.
+- Ordinary KPAD input reaches Toad Road setup after selecting Mario. Pressing Start leaves an animated star background; board gameplay has not begun. This remains the current progression frontier.
+- Developer input no longer overrides physical controllers indefinitely: button holds expire within two seconds, override expires one second later, and replay disables it on exit. Wii A+B maps to right A + right trigger. New physical-headset verification is still needed.
+- Production locked-cache DMA regression fails against the old runtime and passes on ARM64 with store/load/count/wrap/flush/trigger/bounds coverage. Button/motion primitive tests passed previously; physical minigame controls remain unverified.
+- Five RELs have private AOT coverage: Introduction, strap, menu_title, menu, mg9409. Module coverage is incomplete. Earlier missing mg9409 target is compiled; this does not prove progression after Start.
 
-Selecting a character reached strict missing native target A5C01F60, module 46 mg9409.rel offset 1F60, caller 8008A314. New module generation addresses that missing coverage; no successful next-stage test is claimed.
+## Current limits
 
-Graphics evidence: a perspective indexed draw has valid projection and finite vertex positions, but active PN0 position/normal matrices contain extreme invalid values. Trace matrix production/upload rather than assuming shader compilation is the cause. Diagnostic stack reaches original matrix upload function 8019C430 through paired-single FIFO stores, called from 80170850. Debugger argument/register capture was incomplete; it does not yet establish root cause.
+Audio still stutters and output-queue overflow was observed. Save.dat writes were observed; banner errors and save reliability remain unverified. Current presentation is a world-fixed virtual screen. Immersive gameplay/cutscene cameras, per-minigame motion validation, online lobbies/friend codes/profiles/statistics and public end-to-end BYO-ROM native generation remain unfinished.
 
-Experimental changes in this checkpoint: live VAT/VCD restoration, CP layout-list scanning, native texture-copy SDK bindings, and bounded graphics diagnostics. The ineffective host-pointer canonicalization experiment was reverted before checkpoint. They did not visibly fix preview, portraits, or geometry. Synchronous GX also did not fix rendering and is not a solution.
+No finished APK is released. Development APK contains a ROM-free launcher/runtime kit; the separate private translated library and game data remain local. Do not distribute ROM files, assets, saves, translated Nintendo C++, private libraries or wcgame packages.
 
-Startup audio still stutters. Immersive gameplay camera/scenes, complete module coverage, per-minigame physical validation, online lobbies/profiles/statistics, and public BYO-ROM native generation remain unfinished. Current presentation is a world-fixed virtual screen. No finished APK is released. Private translated libraries, ROM data, saves, and wcgame packages must never be distributed.
+See [continuation handoff](MP9_HANDOFF.md) and [maintainer tools](../projects/mp9/README.md).
+
+## Final checkpoint validation
+
+Clean native target, matching APK build/content audit and verified private import passed. Automated ordinary-KPAD replay reached title, main menu, Solo info, character selection and Toad Road setup. Fresh clean-build captures confirm ten portraits/preview remain visible. Start still leaves animated star background. Debug input file absent after replay. Physical A+B and audible quality still require human verification. Native Ninja graph contains mp9_compile pool depth4. No matrix/portrait debugger or trace hook remains active.
