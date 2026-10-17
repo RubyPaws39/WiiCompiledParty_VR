@@ -535,6 +535,16 @@ extern "C" void GX__LoadTexObj_80170f2c(uint32_t oa, uint32_t tid) {
     // Write through GetTexObjMeta so the DCStoreRange interval index is
     // told this entry's backing may have moved.
     GetTexObjMeta(oa) = meta;
+#if defined(MKW_GAME_MP9)
+    // GXLoadTexObjPreLoaded also publishes image/mode words in the guest
+    // SDK shadow. The original __GXSetSUTexRegs reads these to size every
+    // active coordinate, including secondary texture masks. Keep this at
+    // the guest boundary, before any subsequent original SDK code executes.
+    // SSQE01 80198C1C/80198C20: shadow + map*4 + 0x564/0x584.
+    const uint32_t guestGx = Memory::Read32(kGXDataPtrAddr);
+    Memory::Write32(guestGx + 0x564u + tid * 4u, Memory::Read32(oa + 8u));
+    Memory::Write32(guestGx + 0x584u + tid * 4u, Memory::Read32(oa));
+#endif
     GxThread::Post(&GxHostLoadTexObj_gx, load);
     try { uint32_t gd = Memory::Read32(kGXDataPtrAddr); if (gd) { Memory::Write32(gd + 0x5FCu, Memory::Read32(gd + 0x5FCu) | 1u); Memory::Write16(gd + 2, 0); } } catch (...) {}
 }
