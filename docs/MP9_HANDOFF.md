@@ -43,3 +43,9 @@ Existing draft PR: https://github.com/RubyPaws39/WiiCompiledParty_VR/pull/1 , br
 ## Final checkpoint validation
 
 Clean native target, matching APK build/content audit and verified private import passed. Automated ordinary-KPAD replay reached title, main menu, Solo info, character selection and Toad Road setup. Fresh clean-build captures confirm ten portraits/preview remain visible. Start still leaves animated star background. Debug input file absent after replay. Physical A+B and audible quality still require human verification. Native Ninja graph contains mp9_compile pool depth4. No matrix/portrait debugger or trace hook remains active.
+
+## 2026-10-17 limited follow-up smoke test
+
+Installed diagnostic build launched and ordinary KPAD replay verified title, main menu, Solo info, character selection and Toad Road setup. Fresh capture after Start still shows purple star background; board gameplay is not working. Replay exited successfully because menu traversal completed, not because gameplay succeeded. Developer input file was removed on exit.
+
+OpenCode/Nemotron left uncommitted DVD, REL-context and task-context experiments. Their claim of a fixed module-loading root cause is unverified. Proposed DVD hook calls the REL observer on arbitrary read buffers and swallows errors; it is not accepted into published runtime code. Task logging is unbounded/noisy. `dvd.cpp` is compiled through `mkw_runtime_common` Unity source; absence of a standalone dvd.cpp.o does not mean exclusion. No rebuild or new runtime deployment was performed during this limited check. Runtime experiments remain local pending proper validation.
