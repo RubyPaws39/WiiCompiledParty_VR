@@ -1035,8 +1035,10 @@ extern "C" void VIGetRetraceCount_HLE_801baba4(CpuContext* ctx)
         EnsureInitializedLocked();
         count = g_vi.retraceCount;
     }
-    ViSetR3(ctx, count);
     VI_HLE_PollRetrace(ctx);
+    // Guest retrace callbacks use r3 for their own arguments/results. Publish
+    // this getter's result only after callback dispatch has unwound.
+    ViSetR3(ctx, count);
 }
 PPC_NATIVE_OVERRIDE_VOID(801BABA4, VIGetRetraceCount_HLE_801baba4, (CpuContext* ctx), (ctx));
 

@@ -1801,6 +1801,8 @@ static void handle_draw_overrun(u8 cmd, u16 vtxCount, u32 vtxSize, u32 totalVtxB
     return;
   }
   ++truncatedDrawLogCount;
+  Log.warn("  CP descriptor cache {:08X}/{:08X}, native shadow {:08X}/{:08X}",
+           s_cpRegisterCache[0x50], s_cpRegisterCache[0x60], __gx->vcdLo, __gx->vcdHi);
 
   // Hex dump around the draw command for debugging
   u32 cmdPos = pos - 2 - 1; // opcode byte position (before vtxCount and pos++)

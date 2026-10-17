@@ -30,6 +30,13 @@ endif()
 option(MKW_BUILD_PRODUCTS "Build translated WiiCompiled product targets" ON)
 option(MKW_GAME_MP9 "Build the experimental SSQE01 Mario Party 9 runtime adapter" OFF)
 
+# Gradle invokes Ninja directly, so --max-workers does not cap native compile
+# jobs. Full MP9 AOT rebuilds can otherwise exhaust host memory.
+if(MKW_GAME_MP9 AND MKW_PLATFORM_ANDROID AND CMAKE_GENERATOR MATCHES "Ninja")
+    set_property(GLOBAL APPEND PROPERTY JOB_POOLS mp9_compile=4)
+    set(CMAKE_JOB_POOL_COMPILE mp9_compile)
+endif()
+
 # Preprocessor definitions that belong to this project's own code (the runtime,
 # the translated shards and the product glue) and to nothing else. They are
 # applied directory-scoped, immediately after the aurora add_subdirectory() call,

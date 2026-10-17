@@ -7,13 +7,17 @@
 #include "timebase_contract.h"
 
 #include <array>
+#include <algorithm>
 #include <bitset>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 #include <limits>
+
+extern "C" void GxNotifyGuestRamDmaWrite(uint32_t addr, uint32_t size);
 
 
 extern "C" void PPC_TrapWord(uint32_t trapOptions, uint32_t lhs, uint32_t rhs)
@@ -467,6 +471,11 @@ extern "C" uint32_t PPC_ReadSpr(uint32_t spr)
         case 269: return PPC_Mftbu();
         case 287: return kBroadwayPvr; // PVR
         case 920: return cpu ? cpu->hid2 : 0u;
+#if defined(MKW_GAME_MP9)
+        case 922: // DMAU
+        case 923: // DMAL
+            return shadowValue();
+#endif
         case 1008: return cpu ? cpu->hid0 : 0u;
         case 1009: return cpu ? cpu->hid1 : 0u;
         case 1011: return shadowValue(); // spr3f3 in TRK save block
@@ -506,6 +515,36 @@ extern "C" void PPC_WriteSpr(uint32_t spr, uint32_t value)
         case 26: if (cpu) cpu->srr0 = value; return;
         case 27: if (cpu) cpu->srr1 = value; return;
         case 920: if (cpu) cpu->hid2 = value; return;
+#if defined(MKW_GAME_MP9)
+        case 922: // DMAU: external memory address and upper transfer count.
+            g_sprShadow[922] = value;
+            return;
+        case 923: { // DMAL: locked-cache address, direction, count and trigger.
+            // IBM 750CL manual, sections 2.1.2.10 and 9.3: the trigger latches
+            // both registers. Transfers complete synchronously in this runtime.
+            g_sprShadow[923] = value & ~2u;
+            if ((value & 2u) == 0 || (value & 1u) != 0) return;
+            const uint32_t upper = g_sprShadow[922];
+            const uint32_t encodedLines = ((upper & 31u) << 2) | ((value >> 2) & 3u);
+            const uint32_t bytes = (encodedLines == 0 ? 128u : encodedLines) * 32u;
+            const uint32_t ramAddress = upper & 0xffffffe0u;
+            uint32_t lcOffset = value & 0x3fe0u;
+            const bool load = (value & 0x10u) != 0;
+            // Validate both complete ranges before modifying memory. LC is a
+            // 16 KiB ring; a transfer crossing its end wraps within that cache.
+            auto* ram = Memory::GetPointer(ramAddress, bytes);
+            auto* cache = Memory::GetPointer(0xe0000000u, 0x4000u);
+            for (uint32_t offset = 0; offset < bytes;) {
+                const uint32_t chunk = std::min(bytes - offset, 0x4000u - lcOffset);
+                if (load) std::memmove(cache + lcOffset, ram + offset, chunk);
+                else std::memmove(ram + offset, cache + lcOffset, chunk);
+                offset += chunk;
+                lcOffset = 0;
+            }
+            GxNotifyGuestRamDmaWrite(load ? 0xe0000000u : ramAddress, load ? 0x4000u : bytes);
+            return;
+        }
+#endif
         case 1008: if (cpu) cpu->hid0 = value; return;
         case 1009: if (cpu) cpu->hid1 = value; return;
         case 1011: break;
