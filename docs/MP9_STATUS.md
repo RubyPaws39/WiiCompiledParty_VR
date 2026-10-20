@@ -1,3 +1,7 @@
+# Current blocker — 2026-10-19
+
+Audio repeats; dice/event SFX missing per user. Worker-off A/B test did not repair it. See `MP9_AUDIO_HANDOFF.md` for installed bounded diagnostics and exact continuation. Full depth-copy family now passed former faults and reached board intro/order dice. No full-game/audio-complete claim. Older checkpoint entries remain historical.
+
 # Latest verification - 2026-10-19
 
 Quest run `base_1792456556_pid23368` confirmed genuine immersive GX replay: 234/234 perspective draws replayed, both eyes prepared successfully and an OpenXR projection layer submitted. Title/main/Solo selection remained a fixed 2D screen. Camera evidence comes from actual recorded perspective model-view data plus active SSQE01 gameplay modules, not guessed camera pointers. Multiple perspective viewports currently retain the original picture until local-player routing is verified.

@@ -1,3 +1,7 @@
+# Active checkpoint — audio repetition, 2026-10-19
+
+Read [MP9_AUDIO_HANDOFF.md](MP9_AUDIO_HANDOFF.md) and repository `AGENTS.md` first. User requested stopping and handing off to OpenCode. Synchronous mixing did not fix repeated music/missing event SFX. Bounded audio probes are built and installed; no audio repair claimed. Latest depth-copy family passed prior faults and reached board intro/order dice. Older runtime-pending/flat-only statements below are historical and superseded.
+
 # Latest verification - 2026-10-19
 
 Quest run `base_1792456556_pid23368` confirmed genuine immersive GX replay: 234/234 perspective draws replayed, both eyes prepared successfully and an OpenXR projection layer submitted. Title/main/Solo selection remained a fixed 2D screen. Camera evidence comes from actual recorded perspective model-view data plus active SSQE01 gameplay modules, not guessed camera pointers. Multiple perspective viewports currently retain the original picture until local-player routing is verified.
