@@ -172,6 +172,7 @@ static std::optional<size_t> RequiredTextureDataSize(u32 format, uint32_t width,
     blockSize = 4;
     break;
   case GX_TF_I4:
+  case GX_CTF_Z4:
   case GX_TF_C4:
   case GX_TF_CMPR:
     blockWidth = 8;
@@ -182,6 +183,8 @@ static std::optional<size_t> RequiredTextureDataSize(u32 format, uint32_t width,
   case GX_TF_IA4:
   case GX_TF_C8:
   case GX_TF_Z8:
+  case GX_CTF_Z8M:
+  case GX_CTF_Z8L:
     blockWidth = 8;
     blockHeight = 4;
     blockSize = 32;
@@ -191,6 +194,7 @@ static std::optional<size_t> RequiredTextureDataSize(u32 format, uint32_t width,
   case GX_TF_RGB5A3:
   case GX_TF_C14X2:
   case GX_TF_Z16:
+  case GX_CTF_Z16L:
     blockWidth = 4;
     blockHeight = 4;
     blockSize = 32;
@@ -585,8 +589,13 @@ ConvertedTexture convert_texture(u32 format, uint32_t width, uint32_t height, ui
   case GX_TF_I4:
     converted = DecodeTiled<TextureDecoderI4>(width, height, mips, data);
     break;
+  case GX_CTF_Z4:
+    converted = DecodeTiled<TextureDecoderI4>(width, height, mips, data);
+    break;
   case GX_TF_I8:
   case GX_TF_Z8:
+  case GX_CTF_Z8M:
+  case GX_CTF_Z8L:
     converted = DecodeTiled<TextureDecoderI8>(width, height, mips, data);
     break;
   case GX_TF_IA4:
@@ -594,6 +603,7 @@ ConvertedTexture convert_texture(u32 format, uint32_t width, uint32_t height, ui
     break;
   case GX_TF_IA8:
   case GX_TF_Z16:
+  case GX_CTF_Z16L:
     converted = DecodeTiled<TextureDecoderIA8>(width, height, mips, data);
     break;
   case GX_TF_C4:

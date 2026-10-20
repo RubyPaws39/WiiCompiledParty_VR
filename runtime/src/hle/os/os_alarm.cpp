@@ -168,6 +168,7 @@ bool ProcessAlarmQueue(CpuContext* cpu, int maxToProcess)
     }
 
     bool handledAny = false;
+    bool alarmNeedsReschedule = false;
 
     // Keep the alarm recursion guard scoped to alarm dispatch itself. IOS
     // completion may wake and immediately switch into a guest fiber; carrying
@@ -230,12 +231,23 @@ bool ProcessAlarmQueue(CpuContext* cpu, int maxToProcess)
                         throw;
                     }
                     DecrementSchedulerDisableCount();
-                    RunDeferredReschedule(cpu);
+                    // Only record that a switch is owed here. Running it inside
+                    // AlarmProcessScope lets a real guest thread switch suspend
+                    // this host frame while the guard is still held, which wedges
+                    // g_alarmProcessDepth at 1 and disables all later dispatch.
+                    alarmNeedsReschedule = true;
+                    break;
                 }
             }
         } catch (const ::Memory::AccessViolation& e) {
             LogMemoryError(RT_TAG_OS, "ProcessAlarmQueue", e);
         }
+    }
+
+    // The alarm-dispatch guard is released by now, so a thread switch here can
+    // suspend this frame without wedging g_alarmProcessDepth.
+    if (alarmNeedsReschedule) {
+        RunDeferredReschedule(cpu);
     }
 
     // Host DNS workers never touch guest memory. Commit their output here on

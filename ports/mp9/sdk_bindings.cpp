@@ -93,6 +93,7 @@ extern "C" void OSSleepThread_HLE_801aa9b8(CpuContext* ctx);
 extern "C" void OSWakeupThread_HLE_801aaaa4(CpuContext* ctx);
 extern "C" int32_t WPADInit_HLE();
 extern "C" int32_t WPADGetStatus_HLE();
+extern "C" int32_t WPADGetInfoAsync_HLE(uint32_t chan, uint32_t infoPtr, uint32_t callback);
 extern "C" int32_t WPADProbe_HLE(uint32_t channel, uint32_t type);
 extern "C" int32_t KPAD__Read_HLE(uint32_t channel, uint32_t output, uint32_t count);
 extern "C" void AIInit_801240b0(uint32_t callbackStack);
@@ -557,6 +558,8 @@ REGISTER_NATIVE_FUNCTION(0x801D1030, Mp9WUDGetStatus);
 REGISTER_NATIVE_FUNCTION(0x801BE8B0, Mp9WPADInitSub);
 REGISTER_NATIVE_FUNCTION(0x801D6F80, Mp9KPADReadEx);
 REGISTER_NATIVE_FUNCTION(0x801C0370, WPADProbe_HLE);
+// SSQE01 controller-status request; original Bluetooth transport is replaced by host input.
+REGISTER_NATIVE_FUNCTION(0x801C06F0, WPADGetInfoAsync_HLE);
 REGISTER_NATIVE_FUNCTION(0x801A5FC0, AIInit_801240b0);
 REGISTER_NATIVE_FUNCTION(0x801A5E80, AIRegisterDMACallback_80123f88);
 REGISTER_NATIVE_FUNCTION(0x801A5ED0, AIInitDMA_80123fcc);

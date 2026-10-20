@@ -53,6 +53,9 @@ struct RuntimeUserConfig {
     std::optional<bool> vrEnabled;
     std::optional<bool> vrRequired;
     std::optional<float> vrRenderScale;
+    std::optional<float> mp9PointerGain;
+    std::optional<float> mp9MotionGain;
+    std::optional<bool> mp9LeftRemote;
     std::optional<float> vrWorldUnitsPerMeter;
     std::optional<float> vrHudDistanceMeters;
     std::optional<float> vrHudWidthMeters;
@@ -801,6 +804,15 @@ inline RuntimeUserConfig ParseConfigDocument(const toml::value& document) {
     }
 
     config.vrEnabled = FindConfigValue<bool>(document, "vr", "enabled");
+    if (auto value = FindConfigFloat(document, "mp9_vr", "pointer_gain");
+        value && *value >= 0.5f && *value <= 2.0f) {
+        config.mp9PointerGain = *value;
+    }
+    if (auto value = FindConfigFloat(document, "mp9_vr", "motion_gain");
+        value && *value >= 0.25f && *value <= 2.0f) {
+        config.mp9MotionGain = *value;
+    }
+    config.mp9LeftRemote = FindConfigValue<bool>(document, "mp9_vr", "left_remote");
     config.vrRequired = FindConfigValue<bool>(document, "vr", "required");
     if (auto value = FindConfigFloat(document, "vr", "render_scale");
         value && *value >= kVrRenderScaleMin && *value <= kVrRenderScaleMax) {

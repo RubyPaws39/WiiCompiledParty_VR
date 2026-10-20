@@ -12,6 +12,9 @@
 #include "fiber_manager.h"
 #include "platform/host_platform.h"
 #include "runtime_log.h"
+#if defined(MKW_GAME_MP9)
+#include "vr/mp9_presentation.h"
+#endif
 #include "runtime_config.h"
 #include "vr/mkw_vr_first_person.h"
 #include "vr/mkw_vr_policy.h"
@@ -737,6 +740,10 @@ void VI_HLE_PresentFrame(bool presentedXfb, bool paceToRetrace) {
     }
 
     mkw::vr::OpenXRServiceProducerFrameBoundary();
+#if defined(MKW_GAME_MP9)
+    GxThread::Drain();
+    Mp9PublishVrFrame(static_cast<uint64_t>(static_cast<uint32_t>(g_gxFrameCount)));
+#endif
     const SceneAnchorPublication anchor = PublishVrSceneAnchor();
     record.anchor = anchor.anchor;
     record.anchorValid = anchor.valid;

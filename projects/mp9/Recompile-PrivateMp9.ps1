@@ -36,7 +36,7 @@ if ($RepackShards -and (Test-Path -LiteralPath $shardMap)) {
     $shardBackup = "$root\work\base_common_shard_map.$(Get-Date -Format yyyyMMdd-HHmmss).json"
     Move-Item -LiteralPath $shardMap -Destination $shardBackup
 }
-& $dotnet $translator emit-build-shards --base-metadata "$generated\base_translation_output.json" `
+& $dotnet $translator emit-build-shards --base-shards 512 --base-metadata "$generated\base_translation_output.json" `
     --base-functions-dir "$generated\functions" --out "$generated\build_shards" `
     --native-source-dir "$root\work\Wiicompiled_VR\ports\mp9"
 if ($LASTEXITCODE -ne 0) { throw 'Private DOL shard generation failed' }

@@ -375,6 +375,32 @@ static constexpr std::string_view FragZ8 = R"(
 // red, so the encoded [A, R] pair samples through IA8 as high-Z intensity with opaque alpha.
 static constexpr std::string_view FragZ16 = detail::Z16FragmentShader;
 
+static constexpr std::string_view FragZ4 = R"(
+@fragment fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    let d = sample_depth_copy(in.uv);
+    return vec4f(f32(d.r >> 4u) / 15.0);
+}
+)"sv;
+static constexpr std::string_view FragZ8M = R"(
+@fragment fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    let d = sample_depth_copy(in.uv);
+    return vec4f(f32(d.g) / 255.0);
+}
+)"sv;
+static constexpr std::string_view FragZ8L = R"(
+@fragment fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    let d = sample_depth_copy(in.uv);
+    return vec4f(f32(d.b) / 255.0);
+}
+)"sv;
+static constexpr std::string_view FragZ16L = R"(
+@fragment fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    let d = sample_depth_copy(in.uv);
+    let middle = f32(d.g) / 255.0;
+    return vec4f(middle, middle, middle, f32(d.b) / 255.0);
+}
+)"sv;
+
 // GX_TF_Z24X8 uses the RGBA8 storage shape for copies, with the 24-bit depth
 // value available to z-texture sampling through RGB.
 static constexpr std::string_view FragZ24X8 = R"(
@@ -412,6 +438,10 @@ static constexpr std::array ConvPipelines{
 };
 
 static constexpr std::array DepthConvPipelines{
+    ConvPipeline{GX_CTF_Z4, FragZ4, wgpu::TextureFormat::RGBA8Unorm, "TexCopyConv Z4"},
+    ConvPipeline{GX_CTF_Z8M, FragZ8M, wgpu::TextureFormat::RGBA8Unorm, "TexCopyConv Z8M"},
+    ConvPipeline{GX_CTF_Z8L, FragZ8L, wgpu::TextureFormat::RGBA8Unorm, "TexCopyConv Z8L"},
+    ConvPipeline{GX_CTF_Z16L, FragZ16L, wgpu::TextureFormat::RGBA8Unorm, "TexCopyConv Z16L"},
     ConvPipeline{GX_TF_Z8, FragZ8, wgpu::TextureFormat::RGBA8Unorm, "TexCopyConv Z8"},
     ConvPipeline{GX_TF_Z16, FragZ16, wgpu::TextureFormat::RGBA8Unorm, "TexCopyConv Z16"},
     ConvPipeline{GX_TF_Z24X8, FragZ24X8, wgpu::TextureFormat::RGBA8Unorm, "TexCopyConv Z24X8"},

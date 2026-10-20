@@ -695,6 +695,11 @@ void GuestFiberManager::FiberProc(void* param)
         cpu->srr0 = entryPoint;
 
     
+        // MP9 REL thread entries are guest RAM addresses. The indirect bridge
+        // resolves the loaded module before lookup and reports missing targets.
+#if defined(MKW_GAME_MP9)
+        InvokeIndirectCpu(entryPoint, cpu);
+#else
         // Call the translated thread entry function
         const auto* info = TranslatedFunctionRegistry::FindByAddressPtr(entryPoint);
         if (info) {
@@ -703,6 +708,7 @@ void GuestFiberManager::FiberProc(void* param)
             RT_LOG(RT_TAG_OS) << "Thread entry 0x" << std::hex << entryPoint
                       << " not found in registry!" << std::dec << std::endl;
         }
+#endif
     
 #if defined(MKW_GAME_MP9)
         // A normal entry return is an OSExitThread, not a yield to the outer

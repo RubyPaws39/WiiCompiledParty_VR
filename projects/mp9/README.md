@@ -46,3 +46,15 @@ the current game playable; see [status](../../docs/MP9_STATUS.md) and [handoff](
 Example: `python Drive-Mp9DebugInput.py --buttons 0xc00 --press-ms 300` presses Wii A+B. Pointer coordinates range from -1 to 1; right/down are positive. `--capture --output R:/MarioParty9VR/work/frame.bmp` captures game output. These tools are temporary developer support, not gameplay controls or an end-user importer.
 
 `Replay-Mp9Solo.py` sends ordinary inputs and verifies each menu header against local private reference captures before continuing. `--characters` stops at character selection; `--from-main` and `--from-characters` resume verified menu routes. Header edges tolerate restored background graphics; references remain private captures. Reference BMPs listed in the script remain local and are not distributed; a fresh maintainer workspace must capture its own references. Matching headers verifies menus reached, not successful gameplay after Start.
+
+## Controller-info completion regression
+
+`Test-Mp9WpadInfo.cpp` compiles production WPAD request handling against bounded synthetic guest memory and a recorded completion queue. Build with the Android NDK using `-std=c++20 -DMKW_GAME_MP9 -ffunction-sections -fdata-sections -Wl,--gc-sections -static-libstdc++ -Iruntime/include`, then run its ARM64 executable on the device. Covers status output extent, deferred callback arguments, disconnected/bad channels and null-output rejection.
+
+`Merge-Mp9RelAot.py --add sme_op` adds selected generated modules while preserving existing build coverage and checking all retained source hashes. Without `--add`, existing full-manifest merge behavior remains. Generated files are not proof a module is compiled: inspect merged metadata and test actual runtime dispatch. Regenerate build shards after changing SDK bindings; stale-dispatch validation must remain enabled.
+
+## Full REL build coverage
+
+Full manifest merge includes all 115 locally generated modules. It stages flat hard links to existing private REL sources inside the checked functions directory, copying only when the filesystem cannot create a hard link. Source hashes and direct-call dependencies remain checked. Emit with `--base-shards 512` to repack full coverage into bounded translation units; the MP9 rebuild script selects this count. Android translated targets retain line-table debug information to reduce build storage.
+
+Installed native code and active guest modules are different: ARM64 text can remain file-backed and demand-paged while original REL link/unlink controls guest code/data lifetime. Keep strict loaded-section and missing-target checks. Compiling every manifest does not prove every board or minigame works.

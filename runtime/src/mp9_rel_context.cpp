@@ -1,7 +1,14 @@
 #if defined(MKW_GAME_MP9)
 #include "mp9_rel_context.h"
 #include "memory.h"
+#include "runtime_log.h"
+#include "vr/mp9_presentation.h"
+#include "vr/mkw_vr_policy.h"
+#include <aurora/aurora.h>
 #include <array>
+#include <algorithm>
+#include <cstring>
+#include <iomanip>
 #include <stdexcept>
 #include <vector>
 
@@ -16,6 +23,9 @@ void Mp9ObserveRelLink(uint32_t header) {
     const uint32_t id = Memory::Read32(header);
     const uint32_t count = Memory::Read32(header + 0xC);
     const uint32_t offset = Memory::Read32(header + 0x10);
+    RT_LOG(RT_TAG_MOD) << "[mp9-rel-link] id=" << id << " header=0x" << std::hex
+                       << header << std::dec << " count=" << count << " off=" << offset
+                       << std::endl;
     if (id == 0 || id >= modules.size() || count == 0 || count > 64 || offset > 0x200000 ||
         !Memory::Contains(header, 0x40) || !Memory::Contains(header + offset, count * 8))
         throw std::runtime_error("MP9 invalid REL link header");
@@ -35,6 +45,45 @@ void Mp9ObserveRelLink(uint32_t header) {
 void Mp9ObserveRelUnlink(uint32_t header) {
     const uint32_t id = Memory::Read32(header);
     if (id < modules.size() && modules[id].header == header) modules[id] = {};
+}
+
+void Mp9PublishVrFrame(uint64_t frame) {
+    using namespace mkw::vr;
+    AuroraPerspectiveEvidence evidence{};
+    const bool recorded = aurora_take_perspective_evidence(&evidence);
+    // Verified SSQE01 module identities: boards/tutorial, minigames and rendered
+    // Solo scenes. Title, selection and instructions remain on the fixed screen.
+    bool gameplay = false;
+    for (uint32_t id = 3; id < modules.size(); ++id) {
+        if (modules[id].header && Mp9IsGameplayModule(id)) gameplay = true;
+    }
+    if (modules[16].header || modules[17].header) gameplay = false;
+    // Multiple perspective viewports need explicit local-player camera routing;
+    // keep their original picture until that mapping is verified.
+    const bool immersive = Mp9VrCanReplay(gameplay, recorded, evidence.multipleViews, evidence.modelView);
+    MkwVRSceneObservation scene{};
+    scene.mode = immersive ? VRSceneMode::Race : VRSceneMode::Other;
+    scene.local_player_count = immersive ? 1 : 0;
+    scene.guest_frame_index = frame;
+    MkwVRPolicyPublishScene(scene);
+    if (immersive) {
+        MkwVRCameraObservation camera{};
+        std::copy(std::begin(evidence.modelView), std::end(evidence.modelView), camera.view_from_world.begin());
+        camera.guest_frame_index = frame;
+        camera.valid = true;
+        // Actual recorded model-view evidence; replay retains every original
+        // draw's own matrices. No guessed guest camera pointer or identity stub.
+        MkwVRPolicyPublishRaceCamera(camera);
+    } else {
+        MkwVRPolicyInvalidateRaceCamera();
+    }
+    static int last = -1;
+    if (last != int(immersive)) {
+        last = int(immersive);
+        RT_LOG(RT_TAG_RUNTIME) << "[mp9-vr] " << (immersive ? "stereo gameplay" : "fixed screen")
+            << " frame=" << frame << " perspective=" << evidence.draws
+            << " multiview=" << evidence.multipleViews << std::endl;
+    }
 }
 
 uint32_t Mp9RelAddress(uint32_t id, uint32_t section, uint32_t offset) {

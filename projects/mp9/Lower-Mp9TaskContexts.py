@@ -56,10 +56,13 @@ def lower(text, resumes):
 
 def main(root):
     folder = root / 'private-game/generated-native-boot/functions'
-    callers = {p.stem.removeprefix('func_') for p in folder.glob('*.cpp')
-               if p.stem not in ('func_8020C6D8', 'func_8020C7DC')
-               and ('0x8020C6D8u>(ctx)' in p.read_text() or
-                    '0x8020C7DCu>(ctx)' in p.read_text())}
+    # Audit the actual build graph, not stale C++ from previously merged RELs.
+    metadata_path = root / 'private-game/generated-native-boot/base_translation_output.json'
+    document = json.loads(metadata_path.read_text())
+    callers = {f"{entry['entryPoint']:08X}" for entry in document['functions']
+               if entry['entryPoint'] < 0xA0000000
+               and entry['entryPoint'] not in (0x8020C6D8, 0x8020C7DC)
+               and set(entry['build']['directCallDependencies']) & {0x8020C6D8, 0x8020C7DC}}
     assert callers == set(EXPECTED), f'Unrecognized task callers: {callers}'
     for address, resumes in EXPECTED.items():
         path = folder / f'func_{address}.cpp'

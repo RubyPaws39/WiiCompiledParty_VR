@@ -86,6 +86,7 @@ expected = {
     'Mp9WPADInitSub': 'fn_801BE8B0',
     'Mp9KPADReadEx': 'fn_801D6F80',
     'WPADProbe_HLE': 'fn_801C0370',
+    'WPADGetInfoAsync_HLE': 'fn_801C06F0',
     'AIInit_801240b0': 'fn_801A5FC0',
     'AIRegisterDMACallback_80123f88': 'fn_801A5E80',
     'AIInitDMA_80123fcc': 'fn_801A5ED0',
@@ -162,3 +163,18 @@ manifest['runtime']['native_registration_root'] = 'work/Wiicompiled_VR/ports/mp9
 manifest['output']['root'] = 'private-game/generated-native-boot'
 (ROOT / 'work/native-probe/mp9-native-boot.yml').write_text(json.dumps(manifest, indent=2))
 print(f'Validated {len(registrations)} SDK entries and {len(data_symbols)} data globals against SSQE01 symbols.')
+
+# RELs can call interior entries of DOL ABI save/restore helpers. Those roots
+# must participate in DOL translation, even when the boot graph never calls them.
+map_path = ROOT / 'work/native-probe/functions.map'
+map_text = map_path.read_text()
+map_entries = {int(value, 16) for value in re.findall(r'^([0-9A-Fa-f]{8})\s', map_text, re.M)}
+rel_dol_roots = set()
+for module_path in (ROOT / 'private-game/generated-rel-aot').glob('*/module.json'):
+    for entry in json.loads(module_path.read_text())['entries']:
+        rel_dol_roots.update(target for target in entry.get('build', {}).get('directCallDependencies', [])
+                             if 0x80004050 <= target < 0x803343B8)
+extra_roots = sorted(rel_dol_roots - map_entries)
+if extra_roots:
+    map_path.write_text(map_text.rstrip() + '\n' + ''.join(f'{target:08X} rel_dependency_{target:08X}\n' for target in extra_roots))
+print(f'Added {len(extra_roots)} REL-required DOL entry roots.')

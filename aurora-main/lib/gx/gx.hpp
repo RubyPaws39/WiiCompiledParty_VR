@@ -519,8 +519,12 @@ static inline bool copy_texture_format_compatible(GXTexFmt copyFmt, u32 sampleFm
 
   switch (copyFmt) {
   case GX_CTF_R4:
+  case GX_CTF_Z4:
     return sampleFmt == GX_TF_I4;
   case GX_CTF_R8:
+  case GX_TF_Z8:
+  case GX_CTF_Z8M:
+  case GX_CTF_Z8L:
   case GX_CTF_G8:
   case GX_CTF_B8:
   case GX_CTF_A8:
@@ -531,6 +535,7 @@ static inline bool copy_texture_format_compatible(GXTexFmt copyFmt, u32 sampleFm
   case GX_CTF_RG8:
   case GX_CTF_GB8:
   case GX_TF_Z16:
+  case GX_CTF_Z16L:
     return sampleFmt == GX_TF_IA8;
   case GX_CTF_YUVA8:
     return sampleFmt == GX_TF_RGBA8;

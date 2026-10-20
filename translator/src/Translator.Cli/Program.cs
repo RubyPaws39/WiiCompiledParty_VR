@@ -242,6 +242,7 @@ int RunEmitBuildShards(string[] argsTail)
             nativeSourcePath,
             string.IsNullOrWhiteSpace(resolvedProfile) ? null : Path.GetFullPath(resolvedProfile),
             string.IsNullOrWhiteSpace(retroCpp) ? null : Path.GetFullPath(retroCpp),
+            BaseShardCount: int.Parse(OptionValue(argsTail, "--base-shards") ?? "72", System.Globalization.CultureInfo.InvariantCulture),
             NativeIndex: nativeIndex));
         Console.WriteLine("[translator] emitted stable translated build graph");
         Console.WriteLine($"  base functions: {result.BaseFunctionCount:N0}");
@@ -3675,6 +3676,7 @@ static (string? Positional, CommandOption[] Options)? CommandSpec(string command
     "emit-build-shards" => (null, new CommandOption[]
     {
         new("--base-metadata", "path"),
+        new("--base-shards", "count"),
         new("--base-functions-dir", "path"),
         new("--native-source-dir", "path"),
         new("--resolved-profile", "path"),

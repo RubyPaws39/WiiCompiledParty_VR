@@ -6,6 +6,7 @@
 #include "gfx/foveation.hpp"
 #include "gfx/stereo_replay.hpp"
 #include "gx/fifo.hpp"
+#include "gx/command_processor.hpp"
 #include "gx/shader_info.hpp"
 #include "imgui.hpp"
 #include "stereo.hpp"
@@ -2877,6 +2878,15 @@ void aurora_set_stereo_cockpit_item(const AuroraCockpitItem* item) {
 }
 void aurora_set_stereo_local_player_count(uint32_t count) {
   aurora::g_pendingStereoLocalPlayerCount = count >= 1 && count <= 4 ? count : 1;
+}
+
+bool aurora_take_perspective_evidence(AuroraPerspectiveEvidence* evidence) {
+#ifdef AURORA_ENABLE_GX
+  return aurora::gx::fifo::take_perspective_evidence(evidence);
+#else
+  if (evidence) *evidence = {};
+  return false;
+#endif
 }
 void aurora_set_frame_worker_wait_callback(AuroraFrameWorkerWaitCallback callback) {
   aurora::g_frameWorkerWaitCallback.store(callback, std::memory_order_release);

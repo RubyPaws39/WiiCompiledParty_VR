@@ -5,6 +5,7 @@
 #include "wii_remote_input.h"
 
 #include <cstdint>
+#include <algorithm>
 
 void NandQueueIosCallback(uint32_t callbackPtr, int32_t result, uint32_t callbackArg);
 extern "C" bool PAD_HLE_RumbleEnabled();
@@ -156,12 +157,26 @@ PPC_NATIVE_OVERRIDE(801C0EC4, WPADControlMotor_HLE, void, (uint32_t chan, uint32
 
 extern "C" int32_t WPADGetInfoAsync_HLE(uint32_t chan, uint32_t infoPtr, uint32_t callback)
 {
-    if (chan >= WpadContract::kChannelCount) {
-        return CompleteWpadRequest(chan, callback, WpadContract::kErrorBadChannel);
+    int32_t result = WpadContract::kErrorBadChannel;
+    if (chan < WpadContract::kChannelCount) {
+        WiiRemoteInput::Poll();
+        result = WpadContract::kErrorNoController;
+        if (WiiRemoteInput::IsRemoteChannel(chan)) {
+            if (!infoPtr) throw std::invalid_argument("WPADGetInfoAsync requires WPADInfo output");
+            // WPADInfo: five big-endian BOOLs, then battery/LED/protocol/firmware bytes.
+            // SSQE01 passes a 24-byte status area and reads its battery at offset 20.
+            auto* info = static_cast<uint8_t*>(Memory::GetPointer(infoPtr, 24));
+            std::fill_n(info, 24, uint8_t{0});
+            BigEndian::Write32(info, 1); // virtual remote supports infrared pointing
+            info[20] = 4; // virtual Wii Remote has no independent Wii battery
+            info[21] = static_cast<uint8_t>(1u << chan);
+            result = kStatusOk;
+        }
     }
-
-    (void)infoPtr;
-    return CompleteWpadRequest(chan, callback, WpadContract::kErrorNoController);
+    // Dispatch callback(channel, result) after the request returns, through the
+    // existing completion pump. Errors complete too, so callers cannot hang.
+    if (callback) NandQueueIosCallback(callback, static_cast<int32_t>(chan), static_cast<uint32_t>(result));
+    return result;
 }
 PPC_NATIVE_OVERRIDE(801C0CA4, WPADGetInfoAsync_HLE, int32_t,
          (uint32_t chan, uint32_t infoPtr, uint32_t callback), (chan, infoPtr, callback));

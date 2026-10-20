@@ -348,6 +348,16 @@ void aurora_set_cockpit_item_archive(const void* bytes, uint32_t size);
 // Producer-thread, per-frame metadata, consumed by the next end_frame call.
 // One (the default) keeps full-frame replay. Desktop rendering is unaffected.
 void aurora_set_stereo_local_player_count(uint32_t count);
+
+// Actual recorded perspective geometry since the previous take. Drain the GX
+// producer first. This is render evidence, not a replacement game camera.
+typedef struct AuroraPerspectiveEvidence {
+  float modelView[12];
+  float viewport[4];
+  uint32_t draws;
+  bool multipleViews;
+} AuroraPerspectiveEvidence;
+bool aurora_take_perspective_evidence(AuroraPerspectiveEvidence* evidence);
 /**
  * VR native steering wheel: replacement position arrays for the local vehicle.
  *

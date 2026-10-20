@@ -22,7 +22,7 @@ Import-Module "$repo\android\QuestGameKit.psm1" -Force
 $data = if ($LibraryOnly) { '' } else { "$root\private-game\extracted\DATA" }
 $manifest = New-QuestGamePackage -Library $library -DataDir $data `
     -KitDir $kit -GameId $descriptor.game_id -DolSha256 $descriptor.dol_sha256 `
-    -RelSha256 $descriptor.code_manifest_sha256 -BuiltBy 'MP9 private native prototype: partial REL coverage, not playable' `
+    -RelSha256 $descriptor.code_manifest_sha256 -BuiltBy 'MP9 private native AOT developer build; gameplay validation pending' `
     -OutputPath "$root\private-game\mp9-native-boot.wcgame"
 $manifest | ConvertTo-Json | Set-Content "$root\private-game\private-package-report.json" -Encoding utf8
 Write-Output 'Private MP9 package created. Importer will verify disc data, kit identity, and library hash.'

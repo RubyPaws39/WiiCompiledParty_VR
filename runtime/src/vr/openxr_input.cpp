@@ -1228,6 +1228,12 @@ void OpenXRInput::PublishWiiRemote(XrTime input_time, const OpenXRPointerScreen&
     OpenXRWiiRemoteSample sample{};
     sample.hold = wii_remote::RemoteButtons(hands[0], hands[1]) | injected_buttons;
     sample.stick = wii_remote::NunchukStick(hands[0]);
+#if defined(MKW_GAME_MP9)
+    const auto tuning = OpenXRGetWiiRemoteTuning();
+    const uint32_t remote_hand = tuning.left_remote ? 0 : 1;
+#else
+    constexpr uint32_t remote_hand = 1;
+#endif
 
     // Left is the Nunchuk, right is the remote.
     std::array<wii_remote::Pose, kHands> aims{};
@@ -1271,6 +1277,15 @@ void OpenXRInput::PublishWiiRemote(XrTime input_time, const OpenXRPointerScreen&
                                   velocity_valid ? &grip_velocity : nullptr, input_time);
         (hand == 0 ? sample.nunchuk_acc : sample.acc) = acc;
     }
+#if defined(MKW_GAME_MP9)
+    if (tuning.left_remote) {
+        sample.acc = sample.nunchuk_acc;
+    }
+    if (aim_valid[remote_hand]) {
+        // Scale motion only: gravity and therefore tilt retain their real values.
+        sample.acc = wii_remote::ScaleKpadMotion(sample.acc, aims[remote_hand].orientation, tuning.motion_gain);
+    }
+#endif
 
     if (withheld) {
         // Waving a controller around the panel must not trick or wheelie.
@@ -1294,14 +1309,18 @@ void OpenXRInput::PublishWiiRemote(XrTime input_time, const OpenXRPointerScreen&
 
     wii_remote::Screen target{};
     wii_remote::ScreenHit hit{};
-    if (screen.valid && aim_valid[1]) {
+    if (screen.valid && aim_valid[remote_hand]) {
         target.pose = ToWiiRemotePose(screen.pose);
         target.half_width = screen.half_width_meters;
         target.half_height = screen.half_height_meters;
-        hit = wii_remote::RaycastScreen(aims[1], target);
+        hit = wii_remote::RaycastScreen(aims[remote_hand], target);
+#if defined(MKW_GAME_MP9)
+        hit.u *= tuning.pointer_gain;
+        hit.v *= tuning.pointer_gain;
+#endif
     }
-    if (screen.valid && aim_valid[1]) {
-        m_horizon = wii_remote::Horizon(aims[1], target);
+    if (screen.valid && aim_valid[remote_hand]) {
+        m_horizon = wii_remote::Horizon(aims[remote_hand], target);
     }
     const wii_remote::ScreenHit pointer = m_pointer.Update(hit, input_time);
     if (pointer.valid) {

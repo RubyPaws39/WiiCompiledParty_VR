@@ -7,6 +7,7 @@ namespace aurora::gx::fifo {
 
 // Reset the CP write-deduplication state whenever the GX shadow state is reinitialized.
 void reset_cp_register_cache();
+bool take_perspective_evidence(AuroraPerspectiveEvidence* evidence);
 
 // Process a buffer of GX FIFO commands
 void process(const uint8_t* data, uint32_t size, bool bigEndian);

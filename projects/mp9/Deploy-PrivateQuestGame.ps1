@@ -17,8 +17,11 @@ Invoke-Adb shell am force-stop org.marioparty9.quest
 Invoke-Adb logcat -c
 Invoke-Adb shell run-as org.marioparty9.quest cp /data/local/tmp/mp9-native-boot.wcgame files/Import/mp9-native-boot.wcgame
 Invoke-Adb shell am start -W -n org.marioparty9.quest/org.wiicompiled.quest.launcher.LauncherActivity
-Start-Sleep -Seconds 5
-$importLog = Invoke-Adb logcat -d -s WiiCompiledLauncher
+$importDeadline = [DateTime]::UtcNow.AddSeconds(120)
+do {
+    Start-Sleep -Seconds 1
+    $importLog = Invoke-Adb logcat -d -s WiiCompiledLauncher
+} while (($importLog -join "`n") -notmatch 'Imported' -and [DateTime]::UtcNow -lt $importDeadline)
 $importLog | Set-Content "$root\work\$LogName-import.log"
 if (($importLog -join "`n") -notmatch 'Imported') { throw "Check package import: work/$LogName-import.log" }
 Invoke-Adb shell am start -W -n org.marioparty9.quest/org.wiicompiled.quest.QuestActivity

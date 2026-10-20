@@ -1,4 +1,52 @@
-# MP9 Quest development status — 2026-10-16
+# Latest verification - 2026-10-19
+
+Quest run `base_1792456556_pid23368` confirmed genuine immersive GX replay: 234/234 perspective draws replayed, both eyes prepared successfully and an OpenXR projection layer submitted. Title/main/Solo selection remained a fixed 2D screen. Camera evidence comes from actual recorded perspective model-view data plus active SSQE01 gameplay modules, not guessed camera pointers. Multiple perspective viewports currently retain the original picture until local-player routing is verified.
+
+Immediate and FIFO draws now share state-sensitive batching; per-rectangle split-screen metadata stays separate. Same Solo opening changed from roughly 16 FPS / 60 ms mono GPU / 6,600 draw calls to 48-51 FPS / about 7 ms GPU / 760-970 draw calls. This was an early stereo run, not a guaranteed frame rate across all content. Audio stutter remains unverified/further work.
+
+That run passed the first Z8 readback frontier, then stopped on unsupported Z8M (`0x39`). Latest native build adds the depth-copy family (Z4, Z8, Z8M, Z8L, Z16L) through GPU conversion, tiled CPU encoding, texture decoding and copy-cache compatibility. Existing Z16 behavior preserved. ARM64 depth layout/bounds/channel tests pass; latest package is importing for runtime retest. MP9 now defaults to waiting for unready shaders instead of hiding objects.
+
+MP9 headset panel provides gameplay stereo toggle, world scale, recenter, screen geometry, passthrough, resolution, pointer hand/sensitivity and shake strength. Right A=Wii A, right trigger=Wii B, left X=1, right B=2, left stick=D-pad, left Menu/stick click=+, left trigger=-; settings button reserved. Settings save inside this Android package's Config.toml; [mp9_vr] stores control tuning. Motion strength preserves gravity/tilt. ARM64 controls/panel and fast-math scene-validation tests pass.
+
+Earlier complete flat-screen loop verified: Toad Road dice/movement -> Skyjinks -> results -> next Mario turn. All 115 REL modules and 159,140 REL functions compiled. Do not equate coverage with every minigame tested. Strict checks preserved. Full public user-ROM-to-native generation and online systems remain unfinished; public source only, no private game/translated artifacts.
+
+---
+
+# MP9 Quest checkpoint - 2026-10-19
+
+Native ARM64 developer build verified on Quest 3: Solo -> Mario -> Toad Road, dice roll and movement, Skyjinks minigame, normal results, then return to Mario's next board turn. Evidence: private `work/quest-oct18-board-and-skyjinks.log` and matching captures. This proves one complete gameplay loop, not every mode/minigame.
+
+All 115 disc REL modules / 159,140 REL functions exist in the linked native library; 167,529 total translated entries. Original REL link/unlink controls active guest state/assets. Actual full-build process measurement: about 1.18 GiB PSS; file-backed library text does not require player-selected module batches.
+
+Progression fixes: checked WPADGetInfoAsync completion; canonical REL dispatch for OS worker entry points; blocking DVD reads yield independent worker fibers for 1 ms so the initiating caller can arm its completion flag before a cached read finishes. MP9 custom-task scheduler fiber must not suspend mid-HLE. No fake pointers, queue counts, skipped game logic, interpreter, or disabled strict checks.
+
+MP9-specific headset panel replaces kart camera/steering options. Left Y toggles; tracked-controller trigger selects; thumbsticks scroll; right stick click recenters. Screen geometry, passthrough and resolution use existing rendering controls. Pointer sensitivity, shake strength and left-hand pointing/motion save under [mp9_vr]. Gravity/tilt are preserved when scaling shake. Android package storage already separates MP9 configuration from the Mario Kart app.
+
+Current performance investigation: original Solo opening measured roughly 16-18 FPS, 54-61 ms mono GPU work/frame and 5,500-6,600 draw calls; menus reach about 60 FPS. Audio output overflow observed. Do not claim the stutter fixed. Renderer orthographic batching is under investigation; temporary diagnostic must be removed before delivery.
+
+Current presentation remains a world-fixed screen. Immersive scene cameras, complete physical motion validation, remaining graphics artifacts, smooth audio/cutscenes, online profiles/lobbies and end-user on-device native generation remain unfinished. Public APK is a ROM-free developer importer; private translated library/ROM/assets/packages must not be published.
+
+---
+
+## Earlier notes (superseded where contradicted above)
+
+# Current MP9 status ï¿½ 2026-10-18
+
+Toad Road's 3D flythrough now renders on Quest 3. First turn and minigames remain unverified. Previous installed test stopped at Solo stage wrapper `sme_stage00`, missing native target `0xAD809170`. New full build passed and awaits device installation/testing.
+
+The Start stall was an uncompleted `WPADGetInfoAsync` request, not a missing DVD worker. SSQE01 `0x801C06F0` now binds checked virtual-controller info and the existing deferred callback queue. Production ARM64 regression passes callback arguments, output extent and error behavior. Original game then requests Solo opening and board RELs normally.
+
+All 115 generated REL manifests exist locally, but previous installed graph contained only 17,521 entries. Generation alone was mistaken for installed coverage. Full merge and native build passed: 167,529 total entries; linked ELF contains every one of the 159,140 REL functions across all 115 disc modules. No all-minigame success claim yet. Original REL linking controls active guest state/assets; installed ARM64 text remains file-backed. No player-selected module batches are needed on current evidence.
+
+Prior scheduler queue-count injection was removed: `0x80184000` is OSReceiveMessage, and +28 is genuine queue occupancy. Strict guest, loaded-section and missing-dispatch checks remain enabled. Existing DMA and texture metadata repairs remain.
+
+Presentation remains a world-fixed screen. Immersive cameras, complete physical motion validation, audio stability, online systems and public on-device AOT generation remain unfinished. Private ROM/assets/generated code/libraries/packages stay local.
+
+---
+
+## Historical checkpoint (superseded where corrected above)
+
+# MP9 Quest development status ï¿½ 2026-10-16
 
 Native ARM64 static recompilation through Wiicompiled_VR AOT + Aurora. **Not playable yet.**
 

@@ -62,7 +62,10 @@ endfunction()
 
 function(mkw_apply_translated_compile_options target)
     if(MKW_GAME_MP9)
-        target_compile_options(${target} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
+        # Full REL coverage produces large generated objects; retain source-line
+        # diagnostics without redundant per-function type debug records.
+        target_compile_options(${target} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden
+            $<$<PLATFORM_ID:Android>:-gline-tables-only>)
     endif()
     # The NDK toolchain adds -fstack-protector-strong to every object. Translated guest code keeps
     # its state in guest memory and the CpuContext, so the canaries only cost cycles there.

@@ -27,6 +27,15 @@
 
 namespace aurora::gx::fifo {
 static Module Log("aurora::gx::fifo");
+static AuroraPerspectiveEvidence perspectiveEvidence{};
+
+bool take_perspective_evidence(AuroraPerspectiveEvidence* evidence) {
+  std::lock_guard lock(aurora::renderer_gpu_mutex());
+  if (!evidence) return false;
+  *evidence = perspectiveEvidence;
+  perspectiveEvidence = {};
+  return evidence->draws != 0;
+}
 
 using IndexBuffer = std::vector<u16>;
 
@@ -2339,6 +2348,9 @@ static void resolve_replay_pipelines(const CachedPipelineState& state, bool scre
   }
 }
 
+static bool submit_draw_vertices(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices,
+                                 uint16_t vtxCount, uint32_t vtxSize, gfx::Range vertRange);
+
 bool submit_raw_draw(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices, uint16_t vtxCount, uint32_t vertexBytes) {
   ZoneScoped;
   if (vertices == nullptr || vtxCount == 0 || vertexBytes == 0) {
@@ -2372,13 +2384,7 @@ bool submit_raw_draw(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices, ui
   std::lock_guard gpuLock(aurora::renderer_gpu_mutex());
   if (model_array_hidden()) return true;
   const gfx::Range vertRange = push_draw_vertices(vertices, vtxCount, vtxSize);
-  const bool interpolationIdentityActive = frame_interpolation_identity_needed();
-  const PnMtxUsage matrixUsage = interpolationIdentityActive ? pn_mtx_usage(vertices, vtxCount, vtxSize) : PnMtxUsage{};
-  handle_draw_unmerged(prim, fmt, vtxCount, vertRange, matrixUsage.mask, matrixUsage.topologySignature,
-                       interpolationIdentityActive ? draw_geometry_signature(fmt, vertices, vtxCount, vtxSize) : 0,
-                       interpolationIdentityActive, vertices, vtxSize,
-                       resolve_native_wheel(fmt, vertices, vtxCount, vtxSize));
-  return true;
+  return submit_draw_vertices(prim, fmt, vertices, vtxCount, vtxSize, vertRange);
 }
 
 // Runs for every draw, VR interpolation or not: the shape tests come first so that
@@ -2390,6 +2396,61 @@ static bool particle_quad_motion(GXPrimitive prim, GXVtxFmt fmt, uint16_t count)
   const auto& attr = g_gxState.vtxFmts[fmt].attrs[GX_VA_POS];
   return g_gxState.vtxDesc[GX_VA_PNMTXIDX] == GX_NONE && attr.cnt == GX_POS_XYZ && attr.type == GX_F32 &&
          g_gxState.projType == GX_PERSPECTIVE && stereo_frame_interpolation_active();
+}
+
+static bool submit_draw_vertices(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices,
+                                 uint16_t vtxCount, uint32_t vtxSize, gfx::Range vertRange) {
+  // The animated vertex array this draw takes is decided per draw, and the decision is part of what a merge would
+  // share, so resolve it here and hand the result to handle_draw_unmerged rather than deciding twice.
+  NativeWheelArray* const nativeWheel = resolve_native_wheel(fmt, vertices, vtxCount, vtxSize);
+
+  // Preserve per-rectangle split-screen metadata; non-rectangular HUD geometry
+  // can batch when both draws have no such metadata.
+  const bool orthoStereo = aurora::stereo_frame_provider_active() && g_gxState.projType == GX_ORTHOGRAPHIC;
+  const auto rectangle = orthoStereo ? screen_rect(prim, fmt, vertices, vtxCount, vtxSize)
+                                     : std::optional<gfx::stereo_replay::SubviewRect>{};
+  if (!g_gxState.stateDirty && !particle_quad_motion(prim, fmt, vtxCount) &&
+      !rectangle)
+    LIKELY {
+      auto* lastDraw = gfx::get_last_draw_command<DrawData>();
+      // Only if the previous draw call was a single instance draw (no lines/points handling), and only into a draw
+      // that resolved the same animated array: the merged whole renders through that draw's binding. Anything the
+      // decision cache cannot vouch for (a command it was not recorded against) stays unmerged.
+      if (lastDraw != nullptr && !(orthoStereo && lastDraw->screenRect) && prim != GX_LINES && prim != GX_LINESTRIP && prim != GX_POINTS &&
+          !lastDraw->uniformReplayLayout.vertexMotion.enabled &&
+          lastDraw->instanceCount == 1 &&
+          (nativeWheelArrays.empty() ||
+           (nativeWheelLastDrawCommand == lastDraw && nativeWheelLastDecision == nativeWheel)))
+        LIKELY {
+          const auto& indexTemplate = cached_index_template(prim, vtxCount);
+          const auto indices = offset_index_template(indexTemplate, lastDraw->vtxCount);
+          const u32 numIndices = indexTemplate.indexCount;
+          const gfx::Range idxRange = gfx::push_indices(indices);
+          CHECK(lastDraw->vertRange.offset + lastDraw->vertRange.size == vertRange.offset,
+                "Non-consecutive vertex ranges ({} < {})", lastDraw->vertRange.offset + lastDraw->vertRange.size,
+                vertRange.offset);
+          CHECK(lastDraw->idxRange.offset + lastDraw->idxRange.size == idxRange.offset,
+                "Non-consecutive index ranges ({} < {})", lastDraw->idxRange.offset + lastDraw->idxRange.size,
+                idxRange.offset);
+          lastDraw->vertRange.size += vertRange.size;
+          lastDraw->idxRange.size += idxRange.size;
+          lastDraw->vtxCount += vtxCount;
+          lastDraw->indexCount += numIndices;
+          ++gfx::g_mergedDrawCallCount;
+          // This primitive now renders through the draw we merged into, so its palette slots belong to that draw's
+          // interpolation snapshot as well.
+          if (s_lastDrawRecordedInterpolation)
+            UNLIKELY { extend_interpolation_draw(pn_mtx_mask(vertices, vtxCount, vtxSize)); }
+          return true;
+        }
+    }
+
+  const bool interpolationIdentityActive = frame_interpolation_identity_needed();
+  const PnMtxUsage matrixUsage = interpolationIdentityActive ? pn_mtx_usage(vertices, vtxCount, vtxSize) : PnMtxUsage{};
+  handle_draw_unmerged(prim, fmt, vtxCount, vertRange, matrixUsage.mask, matrixUsage.topologySignature,
+                       interpolationIdentityActive ? draw_geometry_signature(fmt, vertices, vtxCount, vtxSize) : 0,
+                       interpolationIdentityActive, vertices, vtxSize, nativeWheel);
+  return true;
 }
 
 static bool handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndian) {
@@ -2426,53 +2487,7 @@ static bool handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndi
   gfx::Range vertRange = push_draw_vertices(vertices, vtxCount, vtxSize);
   pos += totalVtxBytes;
 
-  // The animated vertex array this draw takes is decided per draw, and the decision is part of what a merge would
-  // share, so resolve it here and hand the result to handle_draw_unmerged rather than deciding twice.
-  NativeWheelArray* const nativeWheel = resolve_native_wheel(fmt, vertices, vtxCount, vtxSize);
-
-  // Try to merge with previous draw call.
-  if (!g_gxState.stateDirty && !particle_quad_motion(prim, fmt, vtxCount) &&
-      !(aurora::stereo_frame_provider_active() && g_gxState.projType == GX_ORTHOGRAPHIC))
-    LIKELY {
-      auto* lastDraw = gfx::get_last_draw_command<DrawData>();
-      // Only if the previous draw call was a single instance draw (no lines/points handling), and only into a draw
-      // that resolved the same animated array: the merged whole renders through that draw's binding. Anything the
-      // decision cache cannot vouch for (a command it was not recorded against) stays unmerged.
-      if (lastDraw != nullptr && prim != GX_LINES && prim != GX_LINESTRIP && prim != GX_POINTS &&
-          !lastDraw->uniformReplayLayout.vertexMotion.enabled &&
-          lastDraw->instanceCount == 1 &&
-          (nativeWheelArrays.empty() ||
-           (nativeWheelLastDrawCommand == lastDraw && nativeWheelLastDecision == nativeWheel)))
-        LIKELY {
-          const auto& indexTemplate = cached_index_template(prim, vtxCount);
-          const auto indices = offset_index_template(indexTemplate, lastDraw->vtxCount);
-          const u32 numIndices = indexTemplate.indexCount;
-          const gfx::Range idxRange = gfx::push_indices(indices);
-          CHECK(lastDraw->vertRange.offset + lastDraw->vertRange.size == vertRange.offset,
-                "Non-consecutive vertex ranges ({} < {})", lastDraw->vertRange.offset + lastDraw->vertRange.size,
-                vertRange.offset);
-          CHECK(lastDraw->idxRange.offset + lastDraw->idxRange.size == idxRange.offset,
-                "Non-consecutive index ranges ({} < {})", lastDraw->idxRange.offset + lastDraw->idxRange.size,
-                idxRange.offset);
-          lastDraw->vertRange.size += vertRange.size;
-          lastDraw->idxRange.size += idxRange.size;
-          lastDraw->vtxCount += vtxCount;
-          lastDraw->indexCount += numIndices;
-          ++gfx::g_mergedDrawCallCount;
-          // This primitive now renders through the draw we merged into, so its palette slots belong to that draw's
-          // interpolation snapshot as well.
-          if (s_lastDrawRecordedInterpolation)
-            UNLIKELY { extend_interpolation_draw(pn_mtx_mask(vertices, vtxCount, vtxSize)); }
-          return true;
-        }
-    }
-
-  const bool interpolationIdentityActive = frame_interpolation_identity_needed();
-  const PnMtxUsage matrixUsage = interpolationIdentityActive ? pn_mtx_usage(vertices, vtxCount, vtxSize) : PnMtxUsage{};
-  handle_draw_unmerged(prim, fmt, vtxCount, vertRange, matrixUsage.mask, matrixUsage.topologySignature,
-                       interpolationIdentityActive ? draw_geometry_signature(fmt, vertices, vtxCount, vtxSize) : 0,
-                       interpolationIdentityActive, vertices, vtxSize, nativeWheel);
-  return true;
+  return submit_draw_vertices(prim, fmt, vertices, vtxCount, vtxSize, vertRange);
 }
 
 static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Range vertRange,
@@ -2585,6 +2600,27 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, g
   const auto uniformRanges = build_uniform(info, vertRange.offset, ranges, drawIdentity, perspective, usedPnMtxMask,
                                           vertexMotion, vertexShape);
   const auto& replayLayout = uniformRanges.replayLayout;
+  if (replayLayout.perspective && !replayLayout.nativeEfbEffect && !gfx::is_offscreen()) {
+    const auto& vp = g_gxState.renderViewport;
+    const float area = vp.width * vp.height;
+    const float previousArea = perspectiveEvidence.viewport[2] * perspectiveEvidence.viewport[3];
+    if (area > 0 && (perspectiveEvidence.draws == 0 || area > previousArea + 1.0f)) {
+      perspectiveEvidence = {};
+      perspectiveEvidence.viewport[0] = vp.left;
+      perspectiveEvidence.viewport[1] = vp.top;
+      perspectiveEvidence.viewport[2] = vp.width;
+      perspectiveEvidence.viewport[3] = vp.height;
+      if (g_gxState.currentPnMtx < g_gxState.pnMtx.size()) {
+        const auto& matrix = g_gxState.pnMtx[g_gxState.currentPnMtx].pos;
+        std::memcpy(perspectiveEvidence.modelView, &matrix, sizeof(perspectiveEvidence.modelView));
+      }
+    }
+    if (area >= previousArea - 1.0f) {
+      perspectiveEvidence.multipleViews |= std::abs(vp.left - perspectiveEvidence.viewport[0]) > 1.0f ||
+                                           std::abs(vp.top - perspectiveEvidence.viewport[1]) > 1.0f;
+      ++perspectiveEvidence.draws;
+    }
+  }
   const bool stereo = aurora::stereo_frame_provider_active();
   const bool screen = !replayLayout.perspective && !replayLayout.nativeEfbEffect;
   if (stereo) resolve_replay_pipelines(pipelineState, screen);
