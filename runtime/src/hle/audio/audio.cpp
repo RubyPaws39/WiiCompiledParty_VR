@@ -88,21 +88,6 @@ bool PushAudioBlock(uint32_t startAddr, uint32_t length) {
     }
 
     if (src) {
-#if defined(MKW_GAME_MP9)
-        // Temporary diagnostic: distinguish repeated DMA buffers from repeated AX output.
-        static uint32_t blocks = 0, previousHash = 0, changes = 0, previousAddr = 0, moves = 0;
-        uint32_t hash = 2166136261u;
-        for (uint32_t i = 0; i < bytes; ++i) hash = (hash ^ src[i]) * 16777619u;
-        changes += hash != previousHash;
-        moves += startAddr != previousAddr;
-        previousHash = hash;
-        previousAddr = startAddr;
-        if ((++blocks % 1024) == 0) {
-            RT_LOGF(RT_TAG_AUDIO, "[mp9-audio-dma] blocks=%u changes=%u moves=%u addr=%08x bytes=%u hash=%08x\n",
-                    blocks, changes, moves, startAddr, bytes, hash);
-            changes = moves = 0;
-        }
-#endif
         return AudioBackend::Instance().PushWiiAiSamplesBE16(src, bytes);
     }
 

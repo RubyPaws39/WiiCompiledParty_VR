@@ -14,6 +14,7 @@
 #include "vr/mkw_vr_policy.h"
 #include "vr/mkw_vr_instrumentation.h"
 #include "vr/openxr_diagnostics.h"
+#include "vr/mp9_mixed_reality.h"
 #include <aurora/gfx.h>
 
 #include <algorithm>
@@ -443,6 +444,10 @@ public:
 #endif
         if (has_extension("XR_FB_display_refresh_rate")) {
             runtime_->LoadFunction("xrGetDisplayRefreshRateFB", &get_display_refresh_rate_);
+#if defined(MKW_GAME_MP9)
+            runtime_->LoadFunction("xrEnumerateDisplayRefreshRatesFB", &enumerate_display_refresh_rates_);
+            runtime_->LoadFunction("xrRequestDisplayRefreshRateFB", &request_display_refresh_rate_);
+#endif
         }
         if (has_extension("XR_EXT_performance_settings")) {
             runtime_->LoadFunction("xrPerfSettingsSetPerformanceLevelEXT", &set_performance_level_);
@@ -573,6 +578,10 @@ public:
         prepared_ = false;
         convert_display_time_ = nullptr;
         get_display_refresh_rate_ = nullptr;
+#if defined(MKW_GAME_MP9)
+        enumerate_display_refresh_rates_ = nullptr;
+        request_display_refresh_rate_ = nullptr;
+#endif
         set_performance_level_ = nullptr;
         headset_hz_.store(0, std::memory_order_relaxed);
         rendered_fps_.store(0, std::memory_order_relaxed);
@@ -776,7 +785,13 @@ private:
         if (runtime_ == nullptr || set_performance_level_ == nullptr || !runtime_->HasSession()) {
             return;
         }
-        const std::string requested = RuntimeConfigFile::VrPerformanceLevel();
+        const std::string requested = RuntimeConfigFile::VrPerformanceLevel(
+#if defined(MKW_GAME_MP9)
+            "sustained_high"
+#else
+            RuntimeConfigFile::kVrPerformanceLevelDefault
+#endif
+        );
         XrPerfSettingsLevelEXT level = XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT;
         if (requested == "default") {
             return;
@@ -865,6 +880,9 @@ private:
             }
             if (session_active != session_was_active_) {
                 session_was_active_ = session_active;
+#if defined(MKW_GAME_MP9)
+                if (session_active) ApplyMp9DisplayRate();
+#endif
                 if (!session_active) {
                     ResetTrackingOrigin();
                     // Nothing is displayed while the session is not running (the system menu,
@@ -930,17 +948,27 @@ private:
             // The flag travels with the packet, so the eyes Aurora masks and the layer the
             // backend blends always belong to the same frame.
             presentation.immersive_window = immersive && immersive_window_.load(std::memory_order_relaxed);
+#if defined(MKW_GAME_MP9)
+            const auto mr = mp9_mr::Read();
+            if (mr.enabled) presentation.immersive_window = immersive;
+#endif
             // The room around the menu screen and every other virtual screen, a Flat Screen
             // race included, and around the immersive window; a fully immersive race is
             // virtual all round, and the cameras are paused for it.
             presentation.passthrough =
                 (!immersive || presentation.immersive_window) && passthrough_.load(std::memory_order_relaxed);
+#if defined(MKW_GAME_MP9)
+            if (mr.enabled) presentation.passthrough = mr.room;
+#endif
             // The settings panel gets a compositor layer of its own while it is
             // open, and Aurora leaves it out of the eyes. A backend that could
             // not make that layer has the panel drawn into the eyes instead.
             const bool panel_layer = backend_->PanelLayerAvailable();
             aurora_set_stereo_panel_layer(panel_layer);
             presentation.panel.requested = panel_layer && OpenXRSettingsPanelOpen();
+#if defined(MKW_GAME_MP9)
+            presentation.panel.requested |= panel_layer && mr.enabled && mr.placing;
+#endif
 
             // Pipeline caches are stored where their stall is least visible: once when a race
             // ends, and by the compiler itself while the headset shows the virtual screen. Never
@@ -1376,6 +1404,28 @@ private:
             ViewFromBase(source.xr_frame.views[eye].pose, base_position_,
                          position_valid && base_position_valid_, units_per_meter,
                          lean_back_radians, destination.eyes[eye].viewFromCenter);
+#if defined(MKW_GAME_MP9)
+            const auto mr = mp9_mr::Read();
+            if (mr.enabled && mp9_mr::Usable(mr.screen)) {
+                // Place the neutral camera behind a session-fixed MR screen. Scaling
+                // pivots around that screen plane, not around the player's head.
+                const auto behind = mp9_mr::Rotate(mr.screen.yaw, {0, 0, policy.config.hud_distance_meters});
+                const std::array<float, 3> origin{mr.screen.position[0] + behind[0],
+                    mr.screen.position[1] + behind[1], mr.screen.position[2] + behind[2]};
+                ViewFromBase(source.xr_frame.views[eye].pose, origin, position_valid,
+                             units_per_meter, 0.0f, destination.eyes[eye].viewFromCenter);
+                const auto inverseEye = Conjugate(Normalize({source.xr_frame.views[eye].pose.orientation.x,
+                    source.xr_frame.views[eye].pose.orientation.y, source.xr_frame.views[eye].pose.orientation.z,
+                    source.xr_frame.views[eye].pose.orientation.w}));
+                float rotation[9];
+                RotationMatrix(Multiply(inverseEye, {0, std::sin(mr.screen.yaw * 0.5f), 0,
+                                                    std::cos(mr.screen.yaw * 0.5f)}), rotation);
+                for (unsigned row = 0; row < 3; ++row)
+                    for (unsigned col = 0; col < 3; ++col)
+                        destination.eyes[eye].viewFromCenter[row * 4 + col] = rotation[row * 3 + col];
+                destination.sceneOffset[2] = 1000.0f - policy.config.hud_distance_meters * units_per_meter;
+            }
+#endif
         }
         BuildCockpit(source, position_valid, units_per_meter, lean_back_radians, destination.cockpit);
     }
@@ -1538,6 +1588,14 @@ private:
         if (frame.presentation.mode != OpenXRFrameMode::VirtualScreen) {
             return;
         }
+#if defined(MKW_GAME_MP9)
+        const auto mr = mp9_mr::Read();
+        if (mr.enabled && mp9_mr::Usable(mr.screen)) {
+            frame.presentation.quad_anchored = true;
+            frame.presentation.quad_pose = MrScreenPose(mr);
+            return;
+        }
+#endif
         constexpr XrViewStateFlags kPoseUsable =
             XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
         if (!virtual_screen_pose_valid_ && frame.xr_frame.views_valid &&
@@ -1637,6 +1695,13 @@ private:
     // sits at base + lean * (0, 0, -distance), turned by the lean.
     bool RaceScreenPose(const OpenXRBackendFrame& frame, const MkwVRPolicySnapshot& policy,
                         XrPosef& pose) const noexcept {
+#if defined(MKW_GAME_MP9)
+        const auto mr = mp9_mr::Read();
+        if (mr.enabled && mp9_mr::Usable(mr.screen)) {
+            pose = MrScreenPose(mr);
+            return true;
+        }
+#endif
         const OpenXRFrame& xr_frame = frame.xr_frame;
         const float distance = policy.config.hud_distance_meters;
         if (!(distance > 0.0f)) {
@@ -1694,6 +1759,9 @@ private:
     }
 
     void ResetTrackingOrigin() noexcept {
+#if defined(MKW_GAME_MP9)
+        mp9_mr::ResetPose();
+#endif
         base_position_ = {};
         base_position_valid_ = false;
         last_immersive_ = false;
@@ -1701,6 +1769,32 @@ private:
         // for exactly the same reasons and is re-placed on the next frame.
         virtual_screen_pose_valid_ = false;
     }
+
+#if defined(MKW_GAME_MP9)
+    void ApplyMp9DisplayRate() {
+        if (!mp9_mr::Read().enabled || !enumerate_display_refresh_rates_ || !request_display_refresh_rate_) return;
+        uint32_t count = 0;
+        std::array<float, 16> rates{};
+        if (XR_FAILED(enumerate_display_refresh_rates_(runtime_->Session(), 0, &count, nullptr)) ||
+            count == 0 || count > rates.size() ||
+            XR_FAILED(enumerate_display_refresh_rates_(runtime_->Session(), rates.size(), &count, rates.data()))) return;
+        const float preferred = mp9_mr::PreferredRefreshRate(rates.data(), count);
+        if (preferred == 0) return;
+        float current = 0;
+        if (get_display_refresh_rate_ && XR_SUCCEEDED(get_display_refresh_rate_(runtime_->Session(), &current)) &&
+            std::abs(current - preferred) < 0.1f) return;
+        const auto result = request_display_refresh_rate_(runtime_->Session(), preferred);
+        RT_LOG(RT_TAG_RUNTIME) << "[mp9-mr] requested " << preferred << " Hz for 60 Hz game cadence: "
+                              << (XR_SUCCEEDED(result) ? "accepted" : "refused") << " (" << result << ")" << std::endl;
+    }
+#endif
+
+#if defined(MKW_GAME_MP9)
+    static XrPosef MrScreenPose(const mp9_mr::Snapshot& mr) noexcept {
+        return {{0, std::sin(mr.screen.yaw * 0.5f), 0, std::cos(mr.screen.yaw * 0.5f)},
+                {mr.screen.position[0], mr.screen.position[1], mr.screen.position[2]}};
+    }
+#endif
 
     void SetInterpolationActive(bool active) noexcept {
         std::lock_guard lock(interpolation_mutex_);
@@ -1871,6 +1965,10 @@ private:
     std::chrono::steady_clock::time_point timing_start_ = std::chrono::steady_clock::now();
     uint32_t timing_submissions_ = 0;
     PFN_xrGetDisplayRefreshRateFB get_display_refresh_rate_ = nullptr;
+#if defined(MKW_GAME_MP9)
+    PFN_xrEnumerateDisplayRefreshRatesFB enumerate_display_refresh_rates_ = nullptr;
+    PFN_xrRequestDisplayRefreshRateFB request_display_refresh_rate_ = nullptr;
+#endif
     PFN_xrPerfSettingsSetPerformanceLevelEXT set_performance_level_ = nullptr;
 #if defined(_WIN32)
     using ConvertDisplayTime = XrResult (XRAPI_PTR*)(XrInstance, XrTime, LARGE_INTEGER*);

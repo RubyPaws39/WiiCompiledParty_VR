@@ -209,6 +209,9 @@ typedef struct {
   // everywhere else, for the host's compositor to show its own background
   // (the room, on a headset with passthrough) around it.
   bool window;
+  // Optional translation of recorded world geometry in neutral view units.
+  // MP9 MR scales about its placed screen plane; 2D HUD is unaffected.
+  float sceneOffset[3];
 } AuroraStereoFrame;
 
 /**

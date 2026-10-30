@@ -1,4 +1,8 @@
-# Current blocker — 2026-10-19
+# Latest — 2026-10-30
+
+Target changed to Mixed Reality. See `MP9_MIXED_REALITY.md`: placed stereo-window MR and reference placement controls built; headset charging, no new physical validation. Full free-standing tabletop parity and audio repetition remain unresolved. Native link, ROM-free APK audit and offline input/presentation tests passed. Preserve existing verified game progression.
+
+# Earlier blocker — 2026-10-19
 
 Audio repeats; dice/event SFX missing per user. Worker-off A/B test did not repair it. See `MP9_AUDIO_HANDOFF.md` for installed bounded diagnostics and exact continuation. Full depth-copy family now passed former faults and reached board intro/order dice. No full-game/audio-complete claim. Older checkpoint entries remain historical.
 

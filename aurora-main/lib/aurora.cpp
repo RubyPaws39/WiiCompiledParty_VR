@@ -786,7 +786,8 @@ std::optional<AuroraStereoFrame> request_stereo_frame(uint32_t logicalFrame, uin
   for (uint32_t eye = 0; eye < AURORA_STEREO_EYE_COUNT; ++eye) {
     const auto& input = frame.eyes[eye];
     const bool transformsValid = frame.mode == AURORA_STEREO_FRAME_VIRTUAL_SCREEN ||
-                                 (finite(input.projection, 16) && finite(input.viewFromCenter, 12));
+                                 (finite(input.projection, 16) && finite(input.viewFromCenter, 12) &&
+                                  finite(frame.sceneOffset, 3));
     if (input.width == 0 || input.height == 0 || !transformsValid) {
       Log.warn("Stereo frame {} has invalid eye {} dimensions or transforms; rendering in mono", logicalFrame, eye);
       return std::nullopt;
@@ -833,6 +834,17 @@ std::optional<AuroraStereoFrame> request_stereo_frame(uint32_t logicalFrame, uin
 gfx::StereoReplayFrame make_stereo_replay_frame(const AuroraStereoFrame& input, const StereoSceneAnchor& sceneAnchor) {
   Mat3x4<float> anchorFromScene;
   std::memcpy(&anchorFromScene, sceneAnchor.anchorFromScene.data(), sizeof(anchorFromScene));
+  if (input.sceneOffset[0] != 0.f || input.sceneOffset[1] != 0.f || input.sceneOffset[2] != 0.f) {
+    if (!sceneAnchor.active) {
+      anchorFromScene = {};
+      anchorFromScene.m0[0] = anchorFromScene.m1[1] = anchorFromScene.m2[2] = 1.f;
+    }
+    anchorFromScene.m0[3] += input.sceneOffset[0];
+    anchorFromScene.m1[3] += input.sceneOffset[1];
+    anchorFromScene.m2[3] += input.sceneOffset[2];
+  }
+  const bool anchored = sceneAnchor.active || input.sceneOffset[0] != 0.f ||
+                        input.sceneOffset[1] != 0.f || input.sceneOffset[2] != 0.f;
   gfx::StereoReplayFrame replay{};
   replay.cockpit = input.cockpit;
   replay.cockpitItem = sceneAnchor.cockpitItem;
@@ -877,13 +889,13 @@ gfx::StereoReplayFrame make_stereo_replay_frame(const AuroraStereoFrame& input, 
     // World draws already carry the recorded camera, so they need the anchor
     // folded in; the virtual screen is authored in the anchored camera's space
     // and keeps viewFromCenter.
-    view.viewFromScene = sceneAnchor.active
+    view.viewFromScene = anchored
                              ? gfx::stereo_replay::compose_affine(view.viewFromCenter, anchorFromScene)
                              : view.viewFromCenter;
     // A mirror-mode draw takes the same route from the mirrored eye delta, so the
     // reflection its projection carries is taken in the anchored camera's space.
     const auto mirroredFromCenter = gfx::stereo_replay::mirror_view_delta_x(view.viewFromCenter);
-    view.viewFromSceneMirrored = sceneAnchor.active
+    view.viewFromSceneMirrored = anchored
                                      ? gfx::stereo_replay::compose_affine(mirroredFromCenter, anchorFromScene)
                                      : mirroredFromCenter;
   }

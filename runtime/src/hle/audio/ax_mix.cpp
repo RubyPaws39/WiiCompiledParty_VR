@@ -649,9 +649,6 @@ private:
         while (pbAddr && guard++ < 256) {
             AXPBWii pb{};
             ReadPB(pbAddr, pb);
-#if defined(MKW_GAME_MP9)
-            const uint32_t diagnosticBefore = Hilo(pb.audio_addr.cur_addr_hi, pb.audio_addr.cur_addr_lo);
-#endif
             AXBuffers buffers = MixBuffers();
             const AXMixControl control = ConvertMixerControl(Hilo(pb.mixer_control_hi, pb.mixer_control_lo));
             if (oldAxLayout && (pb.updates.num_updates[0] | pb.updates.num_updates[1] | pb.updates.num_updates[2]) != 0) {
@@ -665,17 +662,6 @@ private:
                 ProcessVoice(pb, buffers, kAxSamplesPerFrame, control, BaseCoefficients(), newFilter);
             }
             WritePB(pbAddr, pb);
-#if defined(MKW_GAME_MP9)
-            static uint32_t diagnosticVoices = 0, diagnosticAdvanced = 0;
-            diagnosticAdvanced += diagnosticBefore != Hilo(pb.audio_addr.cur_addr_hi, pb.audio_addr.cur_addr_lo);
-            if ((++diagnosticVoices % 8192) == 0) {
-                RT_LOGF(RT_TAG_AUDIO, "[mp9-audio-pb] voices=%u advanced=%u pb=%08x cursor=%08x->%08x crc=%08x layout=%u\n",
-                        diagnosticVoices, diagnosticAdvanced, pbAddr, diagnosticBefore,
-                        Hilo(pb.audio_addr.cur_addr_hi, pb.audio_addr.cur_addr_lo), m_ucodeCrc,
-                        static_cast<unsigned>(m_pbLayout));
-                diagnosticAdvanced = 0;
-            }
-#endif
             pbAddr = Hilo(pb.next_pb_hi, pb.next_pb_lo);
         }
     }
@@ -1264,18 +1250,6 @@ private:
             pcm[i * 2] = right;
             pcm[i * 2 + 1] = left;
         }
-#if defined(MKW_GAME_MP9)
-        static uint32_t diagnosticOutputs = 0, diagnosticChanges = 0, diagnosticHash = 0;
-        uint32_t hash = 2166136261u;
-        for (const int16_t sample : pcm) hash = (hash ^ static_cast<uint16_t>(sample)) * 16777619u;
-        diagnosticChanges += hash != diagnosticHash;
-        diagnosticHash = hash;
-        if ((++diagnosticOutputs % 1024) == 0) {
-            RT_LOGF(RT_TAG_AUDIO, "[mp9-audio-mix] outputs=%u changes=%u dst=%08x hash=%08x\n",
-                    diagnosticOutputs, diagnosticChanges, lrAddr, hash);
-            diagnosticChanges = 0;
-        }
-#endif
         // The AI frame (contiguous right/left interleaved) lands in guest memory directly
         // even from the worker: its only reader, PushAudioBlock, runs after Audio_HLE_Tick
         // has joined the worker, so the guest never observes a half-written frame.

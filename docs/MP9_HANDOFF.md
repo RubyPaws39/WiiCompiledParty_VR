@@ -1,4 +1,8 @@
-# Active checkpoint — audio repetition, 2026-10-19
+# Active checkpoint — Mixed Reality, 2026-10-30
+
+Read [MP9_MIXED_REALITY.md](MP9_MIXED_REALITY.md) first. Target changed to Mixed Reality inspired by MarioParty4. Initial placed stereo-window MR, reference placement gestures and guarded 120 Hz cadence request implemented; native/APK/offline tests passed. Headset discharged/charging: no new device result. Full tabletop world-space rendering, room scan/spatial anchors and audio repair remain unfinished. Temporary audio probes removed; older diagnosis/evidence retained below.
+
+# Earlier checkpoint — audio repetition, 2026-10-19
 
 Read [MP9_AUDIO_HANDOFF.md](MP9_AUDIO_HANDOFF.md) and repository `AGENTS.md` first. User requested stopping and handing off to OpenCode. Synchronous mixing did not fix repeated music/missing event SFX. Bounded audio probes are built and installed; no audio repair claimed. Latest depth-copy family passed prior faults and reached board intro/order dice. Older runtime-pending/flat-only statements below are historical and superseded.
 

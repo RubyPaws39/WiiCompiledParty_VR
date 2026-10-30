@@ -15,6 +15,7 @@
 #include "vr/mkw_vr_culling.h"
 #include "vr/mkw_vr_first_person.h"
 #include "vr/mkw_vr_policy.h"
+#include "vr/mp9_mixed_reality.h"
 #include "vr/openxr_diagnostics.h"
 #include "vr/openxr_driving.h"
 #include "vr/openxr_integration.h"
@@ -1487,21 +1488,29 @@ void DrawGraphicsSettings() {
 // bottom of the screen.
 void DrawVrSettings() {
 #if defined(MKW_GAME_MP9)
-    ImGui::SeparatorText("Mario Party 9 VR");
-    ImGui::TextWrapped("Menus stay fixed in space. Gameplay uses headset-tracked stereo when available.");
+    ImGui::SeparatorText("Mario Party 9 Mixed Reality");
+    auto mr = mkw::vr::mp9_mr::Read();
+    if (ImGui::Checkbox("Mixed Reality", &mr.enabled)) mkw::vr::mp9_mr::SetEnabled(mr.enabled);
+    ImGui::TextWrapped("MR keeps a placed stereo game window in your room. Menus remain fixed. Full tabletop conversion is still in development.");
+    if (mr.enabled) {
+        ImGui::TextWrapped("Close settings, then click right stick to place. Left stick: height / model scale. Right stick: screen size / turn. Right grip: carry. A/B: done.");
+        ImGui::Text("Model scale: %.0f units/m | Screen: %.2f m", mr.units, mr.width);
+    }
     ImGui::TextWrapped("Settings save in this app's Config.toml, separately from Mario Kart's Android app.");
     if (ImGui::Button("Recenter screen")) {
         mkw::vr::OpenXRRequestRecenter();
     }
     auto policy = mkw::vr::MkwVRPolicyGetSnapshot().config;
-    bool immersive = !g_vrFlatScreen;
-    if (ImGui::Checkbox("Gameplay stereo VR", &immersive)) {
+    bool immersive = policy.immersive_races;
+    if (ImGui::Checkbox("Stereo gameplay", &immersive)) {
+        mkw::vr::mp9_mr::SetPresentation(immersive, mr.room);
         g_vrFlatScreen = !immersive;
         RuntimeConfigFile::SetVrFlatScreen(!immersive);
         mkw::vr::MkwVRPolicySetImmersiveRaces(immersive);
         policy.immersive_races = immersive;
     }
-    if (ImGui::SliderFloat("World units per meter", &policy.world_units_per_meter, 10.0f, 1000.0f, "%.0f")) {
+    ImGui::BeginDisabled(mr.enabled);
+    if (ImGui::SliderFloat("World units per meter", &policy.world_units_per_meter, 10.0f, 10000.0f, "%.0f")) {
         mkw::vr::MkwVRPolicyConfigure(policy);
         ApplyVrHudVirtualScreen();
     }
@@ -1523,8 +1532,11 @@ void DrawVrSettings() {
         RuntimeConfigFile::WriteSetting("vr", "hud_width_meters", std::to_string(policy.hud_width_meters));
         RuntimeConfigFile::WriteSetting("vr", "hud_distance_meters", std::to_string(policy.hud_distance_meters));
     }
+    ImGui::EndDisabled();
 #if defined(__ANDROID__)
+    if (mr.enabled) g_vrPassthrough = mr.room;
     if (ImGui::Checkbox("Show room around screen", &g_vrPassthrough)) {
+        mkw::vr::mp9_mr::SetPresentation(immersive, g_vrPassthrough);
         mkw::vr::OpenXRSetPassthrough(g_vrPassthrough);
         RuntimeConfigFile::SetVrPassthrough(g_vrPassthrough);
     }
@@ -2499,6 +2511,18 @@ void DrawVrSettingsPanelWindow() {
                                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
     if (ImGui::Begin("WiiCompiled settings", nullptr, kFlags)) {
 #if defined(MKW_GAME_MP9)
+        if (mkw::vr::mp9_mr::Read().placing) {
+            ImGui::TextUnformatted("Mario Party 9 - MR placement");
+            ImGui::Separator();
+            ImGui::TextWrapped("Right trigger: place at controller tip. Right grip: carry.");
+            ImGui::TextWrapped("Right stick up/down: screen size. Left/right: rotate.");
+            ImGui::TextWrapped("Left stick up/down: height. Left/right: model size.");
+            ImGui::TextWrapped("Left trigger: match left controller height. Left stick click: stereo on/off.");
+            ImGui::TextWrapped("X: room on/off. Y: eye resolution 50/75/100%%.");
+            ImGui::TextWrapped("A, B, Menu or right stick click: done. Game input withheld while placing.");
+            ImGui::End();
+            return;
+        }
         ImGui::TextUnformatted("Mario Party 9 - WiiCompiled settings");
 #else
         ImGui::TextUnformatted("WiiCompiled settings");
@@ -2552,7 +2576,13 @@ void DrawVrSettingsPanelWindow() {
 // worker done: the draw data handed to Aurora must stay put until the next
 // frame is encoded, and only the next call here rebuilds it.
 void DrawVrSettingsPanel() {
-    if (!mkw::vr::OpenXRIsRunning() || !mkw::vr::OpenXRSettingsPanelOpen()) {
+    const bool placement =
+#if defined(MKW_GAME_MP9)
+        mkw::vr::mp9_mr::Read().placing;
+#else
+        false;
+#endif
+    if (!mkw::vr::OpenXRIsRunning() || (!mkw::vr::OpenXRSettingsPanelOpen() && !placement)) {
         aurora_imgui_set_stereo_overlay(nullptr, 0.0f);
         return;
     }
@@ -2709,6 +2739,9 @@ void ReleaseControllers() noexcept {
 }
 
 void Draw() noexcept {
+#if defined(MKW_GAME_MP9)
+    mkw::vr::mp9_mr::PersistPendingSettings();
+#endif
     // The overlay draws into the game thread's own ImGui frame
     // (aurora_imgui_host_frame_begin); the worker replays a copy of the draw
     // data, so there is nothing to wait for here.
