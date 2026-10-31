@@ -29,6 +29,8 @@ if ($relManifests.Count) {
     & $python "$root\work\Merge-Mp9RelAot.py"
     if ($LASTEXITCODE -ne 0) { throw 'Private REL AOT merge failed' }
 }
+& $python "$root\work\Wiicompiled_VR\projects\mp9\Observe-Mp9Camera.py" $root
+if ($LASTEXITCODE -ne 0) { throw 'Private MP9 camera observation lowering failed' }
 # New RELs fall above the frozen address cuts and can otherwise collect in
 # one enormous shard. Repack explicitly when adding a module; keep the old map.
 $shardMap = "$generated\build_shards\base_common_shard_map.json"

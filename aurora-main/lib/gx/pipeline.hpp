@@ -14,6 +14,8 @@ struct DrawData {
   // Eye depth/stencil format siblings. Shader modules are shared with mono.
   gfx::PipelineRef stereoPipeline = 0;
   gfx::PipelineRef stereoScreenPipeline = 0;
+  gfx::PipelineRef tabletopPipeline = 0;
+  gfx::PipelineRef tabletopScreenPipeline = 0;
   // Constant-alpha (kCompositeSourceBlend) siblings of pipeline and stereoPipeline, set only
   // on the perspective draws of a pipeline an eye re-issues at a composite
   // (note_composite_source_pipeline).
@@ -43,6 +45,7 @@ constexpr uint32_t GXPipelineConfigVersion = 21;
 // blend an eye uses to re-issue a composite's source draws (see UniformReplayLayout).
 constexpr uint32_t kStereoStencilFormat = 1u;
 constexpr uint32_t kCompositeSourceBlend = 2u;
+constexpr uint32_t kTabletopAlpha = 4u;
 
 constexpr GXFogType effective_pipeline_fog_type(GXFogType fogType, GXZTexOp zTextureOp, bool zCompLocBeforeTex,
                                                 GXBlendMode blendMode, GXLogicOp logicOp) noexcept {
@@ -77,7 +80,8 @@ inline bool valid_pipeline_config(const PipelineConfig& config) noexcept {
   };
   const bool validSamples =
       config.msaaSamples == 1 || config.msaaSamples == 2 || config.msaaSamples == 4 || config.msaaSamples == 8;
-  return config.version == GXPipelineConfigVersion && validSamples && config.stereoStencil <= (kStereoStencilFormat | kCompositeSourceBlend) && in_range(config.depthFunc, GX_ALWAYS) &&
+  return config.version == GXPipelineConfigVersion && validSamples &&
+         !(config.stereoStencil & ~(kStereoStencilFormat | kCompositeSourceBlend | kTabletopAlpha)) && in_range(config.depthFunc, GX_ALWAYS) &&
          in_range(config.cullMode, GX_CULL_ALL) && in_range(config.blendMode, GX_BM_SUBTRACT) &&
          in_range(config.blendFacSrc, GX_BL_INVDSTALPHA) && in_range(config.blendFacDst, GX_BL_INVDSTALPHA) &&
          in_range(config.blendOp, GX_LO_SET) && in_range(config.pixelFmt, GX_PF_YUV420);

@@ -325,6 +325,7 @@ struct StereoReplayFrame {
   // The immersive window (AuroraStereoFrame::window): each eye is masked to the
   // 2D layer's screen after its last draw (gfx/window_mask.hpp).
   bool window = false;
+  bool tabletop = false;
 };
 
 void end_frame(const wgpu::CommandEncoder& cmd);

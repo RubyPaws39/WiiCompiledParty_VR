@@ -30,6 +30,8 @@ inline std::array<float, 3> Rotate(float yaw, const std::array<float, 3>& p) noe
     const float c = std::cos(yaw), s = std::sin(yaw);
     return {c * p[0] + s * p[2], p[1], -s * p[0] + c * p[2]};
 }
+// The model stands at the placement origin; dialogue stands above its back.
+inline constexpr std::array<float, 3> kTabletopHudOffset{0.0f, 0.45f, -0.65f};
 
 struct Snapshot {
     bool enabled = true;

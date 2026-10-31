@@ -3,15 +3,54 @@
 #include "runtime_log.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <fstream>
+#include <filesystem>
+#include <array>
 
 #include <SDL3/SDL_init.h>
+#if defined(__ANDROID__) && defined(MKW_GAME_MP9)
+#include <sys/system_properties.h>
+#include <SDL3/SDL_system.h>
+#endif
 
 AudioBackend& AudioBackend::Instance() {
     static AudioBackend instance;
     return instance;
+}
+
+void AudioBackend::DebugDumpPcm(bool mixed, const void* data, size_t bytes) {
+#if defined(__ANDROID__) && defined(MKW_GAME_MP9)
+    struct Dump { std::ofstream file; size_t bytes = 0; unsigned polls = 0; bool enabled = false; };
+    static std::array<Dump,2> dumps;
+    static std::mutex mutex;
+    std::lock_guard lock(mutex);
+    auto& dump = dumps[mixed ? 1 : 0];
+    if ((dump.polls++ & 127u) == 0) {
+        char value[PROP_VALUE_MAX]{};
+        dump.enabled = __system_property_get("debug.wiicompiled.audio_dump", value) > 0 && value[0] == '1';
+        if (!dump.enabled && dump.file.is_open()) dump.file.flush();
+    }
+    constexpr size_t limit = 32000 * 4 * 30;
+    if (!dump.enabled || !data || !bytes || dump.bytes >= limit) return;
+    if (!dump.file.is_open()) {
+        const auto* internal = SDL_GetAndroidInternalStoragePath();
+        if (!internal) return;
+        const auto directory = std::filesystem::path(internal) / "debug-tools";
+        std::error_code ec;
+        std::filesystem::create_directories(directory, ec);
+        if (ec) return;
+        dump.file.open(directory / (mixed ? "audio-ax-le.pcm" : "audio-dma-be.pcm"), std::ios::binary | std::ios::trunc);
+        if (!dump.file) return;
+    }
+    const size_t count = std::min(bytes, limit - dump.bytes);
+    dump.file.write(static_cast<const char*>(data), count);
+    dump.bytes += count;
+    if (dump.bytes == limit) dump.file.flush();
+#endif
 }
 
 float AudioBackend::EffectiveGainLocked() const {
@@ -121,6 +160,34 @@ bool AudioBackend::QueueHasCapacityLocked(int incomingBytes) {
         return true;
     }
     const uint32_t maxQueued = QueueLimitBytesLocked();
+#if defined(__ANDROID__) && defined(MKW_GAME_MP9)
+    // Opt-in timing only. No sample hashing, extra mixing or playback changes.
+    static const bool timingEnabled = [] {
+        char value[PROP_VALUE_MAX]{};
+        return __system_property_get("debug.wiicompiled.audio_timing", value) > 0 && value[0] == '1';
+    }();
+    if (timingEnabled) {
+        using Clock = std::chrono::steady_clock;
+        static auto start = Clock::now(), previous = start;
+        static uint64_t bytes = 0, drops = 0, empty = 0;
+        static double maxGapMs = 0;
+        const auto now = Clock::now();
+        maxGapMs = std::max(maxGapMs, std::chrono::duration<double, std::milli>(now - previous).count());
+        previous = now;
+        bytes += std::max(incomingBytes, 0);
+        empty += queued == 0;
+        drops += uint64_t(queued) + std::max(incomingBytes, 0) > maxQueued;
+        const double elapsed = std::chrono::duration<double>(now - start).count();
+        if (elapsed >= 5) {
+            const double bytesPerSecond = double(m_spec.freq) * m_spec.channels * sizeof(int16_t);
+            RT_LOG(RT_TAG_AUDIO) << "[mp9-audio-timing] seconds=" << elapsed
+                << " input_seconds=" << bytes / bytesPerSecond << " queued_ms=" << queued * 1000 / bytesPerSecond
+                << " empty_arrivals=" << empty << " dropped_blocks=" << drops << " max_gap_ms=" << maxGapMs
+                << std::endl;
+            start = now; bytes = drops = empty = 0; maxGapMs = 0;
+        }
+    }
+#endif
     if (static_cast<uint64_t>(queued) + static_cast<uint64_t>(std::max(incomingBytes, 0)) > maxQueued) {
         // Match Dolphin's FIFO overflow behavior: preserve the continuous audio
         // already queued and discard the new block.  Clearing SDL's entire
@@ -141,6 +208,7 @@ bool AudioBackend::PushWiiAiSamplesBE16(const uint8_t* data, size_t bytes) {
     if (!data || bytes == 0) {
         return false;
     }
+    DebugDumpPcm(false, data, bytes);
 
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_initialized || !m_stream) {

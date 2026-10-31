@@ -209,6 +209,8 @@ typedef struct {
   // everywhere else, for the host's compositor to show its own background
   // (the room, on a headset with passthrough) around it.
   bool window;
+  // Free-standing world over passthrough, without the virtual-screen aperture.
+  bool tabletop;
   // Optional translation of recorded world geometry in neutral view units.
   // MP9 MR scales about its placed screen plane; 2D HUD is unaffected.
   float sceneOffset[3];
@@ -356,11 +358,16 @@ void aurora_set_stereo_local_player_count(uint32_t count);
 // producer first. This is render evidence, not a replacement game camera.
 typedef struct AuroraPerspectiveEvidence {
   float modelView[12];
+  float projectionX;
+  float models[24][12];
+  uint32_t modelDraws[24];
+  uint32_t modelCount;
   float viewport[4];
   uint32_t draws;
   bool multipleViews;
 } AuroraPerspectiveEvidence;
 bool aurora_take_perspective_evidence(AuroraPerspectiveEvidence* evidence);
+void aurora_set_tabletop_supported(bool supported);
 /**
  * VR native steering wheel: replacement position arrays for the local vehicle.
  *

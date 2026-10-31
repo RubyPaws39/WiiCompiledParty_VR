@@ -849,6 +849,7 @@ gfx::StereoReplayFrame make_stereo_replay_frame(const AuroraStereoFrame& input, 
   replay.cockpit = input.cockpit;
   replay.cockpitItem = sceneAnchor.cockpitItem;
   replay.window = input.mode == AURORA_STEREO_FRAME_IMMERSIVE_REPLAY && input.window;
+  replay.tabletop = input.mode == AURORA_STEREO_FRAME_IMMERSIVE_REPLAY && input.tabletop;
   // The sealed guest frame owns its scale. The packet may have been sampled
   // just before a change of scale (a character swap, a lightning strike), so
   // only its head/IPD translation is rescaled to the frame's.
@@ -991,15 +992,16 @@ struct PendingFrameCapture {
 };
 
 std::optional<PendingFrameCapture> encode_frame_capture(const wgpu::CommandEncoder& encoder,
-                                                        const webgpu::PresentSource& source) {
+                                                        const webgpu::PresentSource& source,
+                                                        const std::string& additionalPath = {}) {
   const uint32_t requestedFrame = g_captureFrame.load(std::memory_order_acquire);
   const uint32_t currentFrame = gfx::current_frame();
-  if (requestedFrame == UINT32_MAX || currentFrame < requestedFrame)
+  if (additionalPath.empty() && (requestedFrame == UINT32_MAX || currentFrame < requestedFrame))
     return std::nullopt;
-  g_captureFrame.store(UINT32_MAX, std::memory_order_release);
+  if (additionalPath.empty()) g_captureFrame.store(UINT32_MAX, std::memory_order_release);
   // Frame zero also serves as a request for the next available frame, allowing
   // development tools to capture without racing the render frame counter.
-  if (requestedFrame != 0 && currentFrame != requestedFrame) {
+  if (additionalPath.empty() && requestedFrame != 0 && currentFrame != requestedFrame) {
     Log.error("Missed requested frame capture {} (current frame {})", requestedFrame, currentFrame);
     return std::nullopt;
   }
@@ -1042,7 +1044,7 @@ std::optional<PendingFrameCapture> encode_frame_capture(const wgpu::CommandEncod
       .bytesPerRow = bytesPerRow,
       .bufferSize = bufferSize,
       .bgra = bgra,
-      .path = g_captureOutputPath,
+      .path = additionalPath.empty() ? g_captureOutputPath : additionalPath,
   };
 }
 
@@ -2351,6 +2353,14 @@ std::vector<PresentationJob> encode_sealed_frame(gfx::SealedFrame& sealedFrame, 
     pendingStereoSink = run_stereo_sink(encoder, ctx.stereoFrameToken, ctx.logicalFrame, ctx.stereoFrameMode);
   }
   auto pendingFrameCapture = encode_frame_capture(encoder, ctx.presentSource);
+  // A requested developer capture also records the actual immersive eye. The
+  // original mono capture stays unchanged for menu automation and comparison.
+  std::optional<PendingFrameCapture> pendingEyeCapture;
+  if (pendingFrameCapture && stereoOutput && immersiveReplay) {
+    const auto& eye = g_stereoEyeTargets[0].output();
+    const webgpu::PresentSource eyeSource{.texture = eye.texture, .size = eye.size, .format = eye.format};
+    pendingEyeCapture = encode_frame_capture(encoder, eyeSource, pendingFrameCapture->path + ".left.bmp");
+  }
   presentationJobs.push_back({
       .image = std::move(finalImage),
       .logicalFrame = ctx.logicalFrame,
@@ -2397,6 +2407,7 @@ std::vector<PresentationJob> encode_sealed_frame(gfx::SealedFrame& sealedFrame, 
   if (pendingFrameCapture.has_value()) {
     complete_frame_capture(*pendingFrameCapture);
   }
+  if (pendingEyeCapture) complete_frame_capture(*pendingEyeCapture);
   gfx::after_submit();
   gfx::g_stats.presentedFrameCount = static_cast<uint32_t>(presentationJobs.size());
   gfx::g_stats.interpolatedFrameCount = ctx.interpolatedFrameCount;
@@ -2892,6 +2903,12 @@ void aurora_set_stereo_local_player_count(uint32_t count) {
   aurora::g_pendingStereoLocalPlayerCount = count >= 1 && count <= 4 ? count : 1;
 }
 
+void aurora_set_tabletop_supported(bool supported) {
+#ifdef AURORA_ENABLE_GX
+  std::lock_guard lock(aurora::renderer_gpu_mutex());
+  aurora::gx::fifo::set_tabletop_supported(supported);
+#endif
+}
 bool aurora_take_perspective_evidence(AuroraPerspectiveEvidence* evidence) {
 #ifdef AURORA_ENABLE_GX
   return aurora::gx::fifo::take_perspective_evidence(evidence);

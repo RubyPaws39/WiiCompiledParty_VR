@@ -14,6 +14,7 @@
 #include "runtime_log.h"
 #if defined(MKW_GAME_MP9)
 #include "vr/mp9_presentation.h"
+#include "mp9_camera.h"
 #endif
 #include "runtime_config.h"
 #include "vr/mkw_vr_first_person.h"
@@ -586,6 +587,16 @@ struct SceneAnchorPublication {
 };
 
 SceneAnchorPublication PublishVrSceneAnchor() {
+#if defined(MKW_GAME_MP9)
+    const auto table = Mp9GetTabletopAnchor();
+    SceneAnchorPublication publication;
+    publication.valid = table.valid;
+    publication.viewValid = table.valid;
+    publication.anchor = table.transform;
+    publication.view = table.view;
+    publication.unitsPerMeter = table.units;
+    return publication;
+#else
     static bool s_engaged = false;
     // Compute the anchor here rather than at the race draw boundary: the
     // scene's camera matrix for this frame is only set once the draws run, so
@@ -627,6 +638,7 @@ SceneAnchorPublication PublishVrSceneAnchor() {
     mkw::vr::MkwVRPolicySetFirstPersonEngaged(engaged);
     settings_overlay::RefreshVrHudVirtualScreen();
     return publication;
+#endif
 }
 
 // Everything the seal needs, latched on the game thread and applied by the GX

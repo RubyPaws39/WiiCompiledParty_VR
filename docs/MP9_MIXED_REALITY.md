@@ -1,5 +1,7 @@
 # MP9 Mixed Reality checkpoint — 2026-10-30
 
+**Superseded in part:** read [the October 31 tabletop status](MP9_TABLETOP_STATUS.md) first. User confirmed free-standing board geometry after pure-camera tracking was added. NPC rendering and audio remain broken. The original stereo-window implementation below is historical.
+
 User changed the target from immersive VR to Mixed Reality, using [Party Board / MarioParty4](https://github.com/zeranemesis/Marioparty4) as the interaction reference. Existing MP9 progression, 115-module coverage, graphics repairs, input mappings and checked native dispatch are preserved.
 
 ## Implemented now

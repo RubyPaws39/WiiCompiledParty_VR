@@ -89,11 +89,13 @@ mp9_mr::Result UpdateMrPlacement(OpenXRRuntime& runtime, XrTime time,
         g_mp9MrQualitySave |= result.qualityChanged;
     }
     if (snapshot.enabled) {
-        auto config = MkwVRPolicyGetSnapshot().config;
-        if (config.hud_width_meters != snapshot.width || config.world_units_per_meter != snapshot.units ||
+        const auto policy = MkwVRPolicyGetSnapshot();
+        auto config = policy.config;
+        const float units = policy.camera.tabletop ? config.world_units_per_meter : snapshot.units;
+        if (config.hud_width_meters != snapshot.width || config.world_units_per_meter != units ||
             config.immersive_races != snapshot.stereo) {
             config.hud_width_meters = snapshot.width;
-            config.world_units_per_meter = snapshot.units;
+            config.world_units_per_meter = units;
             config.immersive_races = snapshot.stereo;
             MkwVRPolicyConfigure(config);
             // Convert the unchanged physical HUD size at the same scale as world replay.

@@ -28,6 +28,8 @@
 namespace aurora::gx::fifo {
 static Module Log("aurora::gx::fifo");
 static AuroraPerspectiveEvidence perspectiveEvidence{};
+static bool tabletopSupported = false;
+void set_tabletop_supported(bool supported) { tabletopSupported = supported; }
 
 bool take_perspective_evidence(AuroraPerspectiveEvidence* evidence) {
   std::lock_guard lock(aurora::renderer_gpu_mutex());
@@ -2223,6 +2225,8 @@ struct CachedPipelineState {
   mutable gfx::PipelineRef stereoRef = 0;
   mutable gfx::PipelineRef screenRef = 0;
   mutable gfx::PipelineRef stereoScreenRef = 0;
+  mutable gfx::PipelineRef tabletopRef = 0;
+  mutable gfx::PipelineRef tabletopScreenRef = 0;
   // Constant-alpha siblings, while ref is in s_compositeSourcePipelines. Checked again only when
   // compositeSourceGeneration falls behind that set (resolve_composite_source_pipelines).
   mutable gfx::PipelineRef compositeSourceRef = 0;
@@ -2336,7 +2340,8 @@ static void resolve_composite_source_pipelines(const CachedPipelineState& state)
 // draws only read the refs: no extra config population/hashing on the Quest CPU.
 // Shader modules are shared by the depth-format variants.
 static void resolve_replay_pipelines(const CachedPipelineState& state, bool screen) {
-  if (state.stereoRef && (!screen || state.stereoScreenRef)) return;
+  if (state.stereoRef && (!screen || state.stereoScreenRef) &&
+      (!tabletopSupported || (state.tabletopRef && (!screen || state.tabletopScreenRef)))) return;
   PipelineConfig config = *state.config;
   config.stereoStencil = kStereoStencilFormat;
   if (!state.stereoRef) state.stereoRef = gfx::pipeline_ref(config);
@@ -2345,6 +2350,19 @@ static void resolve_replay_pipelines(const CachedPipelineState& state, bool scre
     state.stereoScreenRef = gfx::pipeline_ref(config);
     config.stereoStencil = 0;
     state.screenRef = gfx::pipeline_ref(config);
+  }
+  if (tabletopSupported) {
+    config = *state.config;
+    config.stereoStencil = kStereoStencilFormat | kTabletopAlpha;
+    config.dstAlpha = UINT32_MAX;
+    config.alphaUpdate = config.colorUpdate;
+    if (!state.tabletopRef) state.tabletopRef = gfx::pipeline_ref(config);
+    if (screen && !state.tabletopScreenRef) {
+      config.shaderConfig.exactScreenDepth = 1;
+      config.depthCompare = false;
+      config.depthUpdate = false;
+      state.tabletopScreenRef = gfx::pipeline_ref(config);
+    }
   }
 }
 
@@ -2610,6 +2628,7 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, g
       perspectiveEvidence.viewport[1] = vp.top;
       perspectiveEvidence.viewport[2] = vp.width;
       perspectiveEvidence.viewport[3] = vp.height;
+      perspectiveEvidence.projectionX = g_gxState.proj.m0[0];
       if (g_gxState.currentPnMtx < g_gxState.pnMtx.size()) {
         const auto& matrix = g_gxState.pnMtx[g_gxState.currentPnMtx].pos;
         std::memcpy(perspectiveEvidence.modelView, &matrix, sizeof(perspectiveEvidence.modelView));
@@ -2619,6 +2638,20 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, g
       perspectiveEvidence.multipleViews |= std::abs(vp.left - perspectiveEvidence.viewport[0]) > 1.0f ||
                                            std::abs(vp.top - perspectiveEvidence.viewport[1]) > 1.0f;
       ++perspectiveEvidence.draws;
+      const auto mask = usedPnMtxMask ? usedPnMtxMask : uint16_t(1u << g_gxState.currentPnMtx);
+      for (unsigned slot = 0; slot < g_gxState.pnMtx.size(); ++slot) {
+        if (!(mask & (1u << slot))) continue;
+        const auto& matrix = g_gxState.pnMtx[slot].pos;
+        unsigned index = 0;
+        while (index < perspectiveEvidence.modelCount &&
+               std::memcmp(perspectiveEvidence.models[index], &matrix, sizeof(perspectiveEvidence.modelView)) != 0) ++index;
+        if (index == perspectiveEvidence.modelCount) {
+          if (index >= 24) continue;
+          std::memcpy(perspectiveEvidence.models[index], &matrix, sizeof(perspectiveEvidence.modelView));
+          ++perspectiveEvidence.modelCount;
+        }
+        ++perspectiveEvidence.modelDraws[index];
+      }
     }
   }
   const bool stereo = aurora::stereo_frame_provider_active();
@@ -2640,6 +2673,8 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, g
       .exactScreenDepthPipeline = stereo && screen ? pipelineState.screenRef : 0,
       .stereoPipeline = stereo ? pipelineState.stereoRef : 0,
       .stereoScreenPipeline = stereo && screen ? pipelineState.stereoScreenRef : 0,
+      .tabletopPipeline = stereo ? pipelineState.tabletopRef : 0,
+      .tabletopScreenPipeline = stereo && screen ? pipelineState.tabletopScreenRef : 0,
       .compositeSourcePipeline = stereo && replayLayout.perspective ? pipelineState.compositeSourceRef : 0,
       .stereoCompositeSourcePipeline =
           stereo && replayLayout.perspective ? pipelineState.stereoCompositeSourceRef : 0,

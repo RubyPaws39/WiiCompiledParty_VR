@@ -950,7 +950,8 @@ private:
             presentation.immersive_window = immersive && immersive_window_.load(std::memory_order_relaxed);
 #if defined(MKW_GAME_MP9)
             const auto mr = mp9_mr::Read();
-            if (mr.enabled) presentation.immersive_window = immersive;
+            presentation.tabletop = immersive && mr.enabled && policy.camera.tabletop;
+            if (mr.enabled) presentation.immersive_window = immersive && !presentation.tabletop;
 #endif
             // The room around the menu screen and every other virtual screen, a Flat Screen
             // race included, and around the immersive window; a fully immersive race is
@@ -1365,6 +1366,7 @@ private:
         destination.mode = immersive ? AURORA_STEREO_FRAME_IMMERSIVE_REPLAY
                                       : AURORA_STEREO_FRAME_VIRTUAL_SCREEN;
         destination.window = immersive && source.presentation.immersive_window;
+        destination.tabletop = immersive && source.presentation.tabletop;
         for (uint32_t eye = 0; eye < kOpenXREyeCount; ++eye) {
             destination.eyes[eye].width = source.render_width[eye];
             destination.eyes[eye].height = source.render_height[eye];
@@ -1409,7 +1411,10 @@ private:
             if (mr.enabled && mp9_mr::Usable(mr.screen)) {
                 // Place the neutral camera behind a session-fixed MR screen. Scaling
                 // pivots around that screen plane, not around the player's head.
-                const auto behind = mp9_mr::Rotate(mr.screen.yaw, {0, 0, policy.config.hud_distance_meters});
+                auto localOrigin = std::array<float, 3>{0, 0, policy.config.hud_distance_meters};
+                if (destination.tabletop)
+                    for (unsigned axis = 0; axis < 3; ++axis) localOrigin[axis] += mp9_mr::kTabletopHudOffset[axis];
+                const auto behind = mp9_mr::Rotate(mr.screen.yaw, localOrigin);
                 const std::array<float, 3> origin{mr.screen.position[0] + behind[0],
                     mr.screen.position[1] + behind[1], mr.screen.position[2] + behind[2]};
                 ViewFromBase(source.xr_frame.views[eye].pose, origin, position_valid,
@@ -1423,7 +1428,8 @@ private:
                 for (unsigned row = 0; row < 3; ++row)
                     for (unsigned col = 0; col < 3; ++col)
                         destination.eyes[eye].viewFromCenter[row * 4 + col] = rotation[row * 3 + col];
-                destination.sceneOffset[2] = 1000.0f - policy.config.hud_distance_meters * units_per_meter;
+                if (!destination.tabletop)
+                    destination.sceneOffset[2] = 1000.0f - policy.config.hud_distance_meters * units_per_meter;
             }
 #endif
         }
@@ -1699,6 +1705,12 @@ private:
         const auto mr = mp9_mr::Read();
         if (mr.enabled && mp9_mr::Usable(mr.screen)) {
             pose = MrScreenPose(mr);
+            if (policy.camera.tabletop) {
+                const auto offset = mp9_mr::Rotate(mr.screen.yaw, mp9_mr::kTabletopHudOffset);
+                pose.position.x += offset[0];
+                pose.position.y += offset[1];
+                pose.position.z += offset[2];
+            }
             return true;
         }
 #endif

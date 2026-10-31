@@ -100,6 +100,7 @@ struct MkwVRCameraObservation {
     uint32_t guest_camera_address = 0;
     uint64_t guest_frame_index = 0;
     bool valid = false;
+    bool tabletop = false;
 };
 
 struct MkwVRDrawObservation {

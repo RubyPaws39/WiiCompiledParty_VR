@@ -1,5 +1,7 @@
 # MP9 continuation instructions
 
+Latest (2026-10-31): read `docs/MP9_TABLETOP_STATUS.md` first. User confirmed tabletop board geometry; talking Toad NPC textures and repeating music remain broken. Native pure-camera provenance/cancellation and transparent-world/HUD paths now exist. Subsequent diagnostic builds add draw-weighted camera selection, paired mono/eye capture and opt-in bounded AX/DMA PCM recording. Preserve working private tabletop checkpoint. Do not claim audio repaired or every scene converted. Older charging/window-only notes below are superseded.
+
 Read `docs/MP9_MIXED_REALITY.md` and `docs/MP9_HANDOFF.md` first. Newest checkpoints supersede older entries.
 
 Current user target (2026-10-30): Mixed Reality inspired by zeranemesis/Marioparty4, preserving MP9 progression. Initial placed stereo-window MR and reference placement gestures implemented; full tabletop world/camera separation is unfinished. Headset charging: build/offline checks only so far, no device verification. Do not claim identical tabletop behavior. Source reference and concrete validation steps are in the MR checkpoint.

@@ -2626,6 +2626,7 @@ void DrawVrSettingsPanel() {
 
 void InitializeRuntimeSettings() noexcept {
 #if defined(MKW_GAME_MP9)
+    aurora_set_tabletop_supported(true);
     mkw::vr::OpenXRSetWiiRemoteTuning({RuntimeConfigFile::Get().mp9PointerGain.value_or(1.0f),
                                       RuntimeConfigFile::Get().mp9MotionGain.value_or(1.0f),
                                       RuntimeConfigFile::Get().mp9LeftRemote.value_or(false)});
