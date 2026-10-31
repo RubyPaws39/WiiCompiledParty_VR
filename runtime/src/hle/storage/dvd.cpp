@@ -1,4 +1,4 @@
-﻿#include "hle_stubs.h"
+#include "hle_stubs.h"
 #include "isa/big_endian.h"
 #include "hle/dvd_contract.h"
 #include "hle/dvd_vr_asset.h"
@@ -15,6 +15,11 @@ extern "C" void GxNotifyGuestRamDmaWrite(uint32_t addr, uint32_t size);
 #include "runtime_config.h"
 #include "runtime_log.h"
 #include "runtime_product.h"
+#if defined(MKW_GAME_MP9)
+#include "fiber_manager.h"
+#include "timebase_contract.h"
+extern "C" void OS__SleepTicks_HLE_801aaca8(CpuContext*);
+#endif
 
 #include <cstdint>
 #include <cstdlib>
@@ -940,7 +945,7 @@ extern "C" int32_t Mp9DVDInquiryAsync(uint32_t block, uint32_t output, uint32_t 
 }
 #endif
 
-extern "C" int32_t DVDReadPrio_8015E834(uint32_t fileInfoPtr, uint32_t bufferPtr, int32_t length, int32_t offset, int32_t prio)
+static int32_t ReadDvdFile(uint32_t fileInfoPtr, uint32_t bufferPtr, int32_t length, int32_t offset, int32_t prio, bool blocking)
 {
     (void)prio;
 
@@ -984,6 +989,19 @@ extern "C" int32_t DVDReadPrio_8015E834(uint32_t fileInfoPtr, uint32_t bufferPtr
         uLength = entry.size - uOffset;
     }
 
+#if defined(MKW_GAME_MP9)
+    {
+        // Temporary developer trace: shows exactly which disc files the guest
+        // requests and whether a wanted module is never asked for at all.
+        const std::string path = HostPathText(entry.hostPath);
+        const size_t slash = path.find_last_of('/');
+        if (path.find(".rel") != std::string::npos) RT_LOG(RT_TAG_DVD) << "[mp9-dvd-read] \""
+                           << (slash == std::string::npos ? path : path.substr(slash + 1))
+                           << "\" off=0x" << std::hex << offset << std::dec
+                           << " len=" << uLength << std::endl;
+    }
+#endif
+
     if (uLength != 0 && !Memory::Contains(bufferPtr, uLength)) {
         return DvdReadFatal(fileInfoPtr, HostPathText(entry.hostPath), offset, uLength,
                             "DVD read destination is outside guest memory");
@@ -997,12 +1015,38 @@ extern "C" int32_t DVDReadPrio_8015E834(uint32_t fileInfoPtr, uint32_t bufferPtr
     }
 
     CopyToGuestAsDma(bufferPtr, tempBuf.data(), uLength);
+#if defined(MKW_GAME_MP9)
+    // A blocking device read must let other guest threads run while I/O completes.
+    // Instant host-cache reads otherwise let a resumed loader finish before its
+    // caller can publish the in-flight flag. Async requests keep their deferred
+    // callback path and never take this blocking wait.
+    const auto* ioFiber = Fiber::GuestFiberManager::IsInitialized()
+        ? Fiber::GuestFiberManager::GetFiber(Fiber::GuestFiberManager::GetCurrentGuestThread()) : nullptr;
+    // The main thread also hosts MP9's custom tasks, which cannot suspend in
+    // the middle of an HLE call. Only independent OS worker fibers park here.
+    if (blocking && uLength && ioFiber && !ioFiber->isSchedulerFiber) {
+        if (auto* cpu = TryGetCpuContext()) {
+            const uint32_t savedR3 = cpu->gpr[3], savedR4 = cpu->gpr[4];
+            cpu->gpr[3] = 0;
+            cpu->gpr[4] = TimeBaseContract::kTicksPerSecond / 1000;
+            OS__SleepTicks_HLE_801aaca8(cpu);
+            cpu->gpr[3] = savedR3;
+            cpu->gpr[4] = savedR4;
+        }
+    }
+#else
+    (void)blocking;
+#endif
 
     Memory::Write32(fileInfoPtr + DVD_CB_OFFSET_TRANSFERRED, uLength);
     Memory::Write32(fileInfoPtr + DVD_CB_OFFSET_STATE, DVD_STATE_END);
     CompleteDvdCancelState();
 
     return static_cast<int32_t>(uLength);
+}
+extern "C" int32_t DVDReadPrio_8015E834(uint32_t fileInfoPtr, uint32_t bufferPtr,
+    int32_t length, int32_t offset, int32_t prio) {
+    return ReadDvdFile(fileInfoPtr, bufferPtr, length, offset, prio, true);
 }
 PPC_NATIVE_OVERRIDE(8015E834, DVDReadPrio_8015E834, int32_t, (uint32_t f, uint32_t b, int32_t l, int32_t o, int32_t p), (f, b, l, o, p));
 
@@ -1015,7 +1059,7 @@ extern "C" int32_t DVD__ReadAsyncPrio_HLE_8015e74c(uint32_t fileInfoPtr,
                                                    uint32_t callbackPtr,
                                                    int32_t prio)
 {
-    const int32_t bytesRead = DVDReadPrio_8015E834(fileInfoPtr, bufferPtr, length, offset, prio);
+    const int32_t bytesRead = ReadDvdFile(fileInfoPtr, bufferPtr, length, offset, prio, false);
 
     InvokeDvdCallback(callbackPtr, bytesRead, fileInfoPtr);
     CompleteDvdCancelState();

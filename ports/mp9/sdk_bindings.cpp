@@ -62,6 +62,9 @@ extern "C" void GX__SetGPFifo_8016cb2c(uint32_t fifo);
 extern "C" void __GX__PEInit_8016ee14();
 extern "C" void GX__DrawDone_8016eab0();
 extern "C" void Mp9GXCopyDisp(uint32_t destination, uint32_t clear);
+extern "C" void GX__SetTexCopySrc_8016f478(uint32_t left, uint32_t top, uint32_t width, uint32_t height);
+extern "C" void GX__SetTexCopyDst_8016f4dc(uint32_t width, uint32_t height, uint32_t format, uint32_t mipmap);
+extern "C" void GX__CopyTex_8016fd74(uint32_t destination, uint32_t clear);
 extern "C" void GX__InitTexObjCI_80170a04(uint32_t object, uint32_t data, uint32_t width, uint32_t height, uint32_t format, uint32_t wrapS, uint32_t wrapT, uint32_t mipmap, uint32_t tlut);
 extern "C" void GX__LoadTexObj_80170f2c(uint32_t object, uint32_t map);
 extern "C" void GX__InitTlutObj_80170f80(uint32_t object, uint32_t data, uint32_t format, uint32_t entries);
@@ -90,6 +93,7 @@ extern "C" void OSSleepThread_HLE_801aa9b8(CpuContext* ctx);
 extern "C" void OSWakeupThread_HLE_801aaaa4(CpuContext* ctx);
 extern "C" int32_t WPADInit_HLE();
 extern "C" int32_t WPADGetStatus_HLE();
+extern "C" int32_t WPADGetInfoAsync_HLE(uint32_t chan, uint32_t infoPtr, uint32_t callback);
 extern "C" int32_t WPADProbe_HLE(uint32_t channel, uint32_t type);
 extern "C" int32_t KPAD__Read_HLE(uint32_t channel, uint32_t output, uint32_t count);
 extern "C" void AIInit_801240b0(uint32_t callbackStack);
@@ -486,6 +490,12 @@ REGISTER_NATIVE_FUNCTION(0x80194A10, GX__SetGPFifo_8016cb2c);
 REGISTER_NATIVE_FUNCTION(0x80196980, __GX__PEInit_8016ee14);
 REGISTER_NATIVE_FUNCTION(0x80196560, GX__DrawDone_8016eab0);
 REGISTER_NATIVE_FUNCTION(0x80197830, Mp9GXCopyDisp);
+// These three entries form one texture-copy frontend. The native producer
+// retains the original source/destination arguments and performs the ordered
+// GPU resolve; raw BP52 decoding alone only records the control register.
+REGISTER_NATIVE_FUNCTION(0x80197040, GX__SetTexCopySrc_8016f478);
+REGISTER_NATIVE_FUNCTION(0x801970B0, GX__SetTexCopyDst_8016f4dc);
+REGISTER_NATIVE_FUNCTION(0x80197970, GX__CopyTex_8016fd74);
 
 extern "C" void Mp9GXInit(CpuContext* ctx) {
     const uint32_t fifo = GX__Init_8016b850(ctx->gpr[3], ctx->gpr[4]);
@@ -548,6 +558,8 @@ REGISTER_NATIVE_FUNCTION(0x801D1030, Mp9WUDGetStatus);
 REGISTER_NATIVE_FUNCTION(0x801BE8B0, Mp9WPADInitSub);
 REGISTER_NATIVE_FUNCTION(0x801D6F80, Mp9KPADReadEx);
 REGISTER_NATIVE_FUNCTION(0x801C0370, WPADProbe_HLE);
+// SSQE01 controller-status request; original Bluetooth transport is replaced by host input.
+REGISTER_NATIVE_FUNCTION(0x801C06F0, WPADGetInfoAsync_HLE);
 REGISTER_NATIVE_FUNCTION(0x801A5FC0, AIInit_801240b0);
 REGISTER_NATIVE_FUNCTION(0x801A5E80, AIRegisterDMACallback_80123f88);
 REGISTER_NATIVE_FUNCTION(0x801A5ED0, AIInitDMA_80123fcc);

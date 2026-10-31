@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <cstring>
 
 namespace mkw::vr {
 // Named rather than anonymous: runtime sources are unity-built in groups, and
@@ -13,6 +14,7 @@ namespace wii_remote_bridge {
 struct PublishedSample {
     std::mutex mutex;
     OpenXRWiiRemoteSample sample{};
+    OpenXRWiiRemoteTuning tuning{};
     bool available = false;
 };
 
@@ -27,6 +29,25 @@ std::atomic<uint32_t> g_joystick_id{0};
 std::atomic<bool> g_rumble{false};
 
 } // namespace wii_remote_bridge
+
+void OpenXRSetWiiRemoteTuning(const OpenXRWiiRemoteTuning& tuning) noexcept {
+    auto& published = wii_remote_bridge::Published();
+    std::lock_guard lock(published.mutex);
+    const auto bounded = [](const float& value, float lower, float upper) {
+        uint32_t bits;
+        std::memcpy(&bits, &value, sizeof(bits));
+        return (bits & 0x7f800000u) == 0x7f800000u ? 1.0f : std::clamp(value, lower, upper);
+    };
+    published.tuning.pointer_gain = bounded(tuning.pointer_gain, 0.5f, 2.0f);
+    published.tuning.motion_gain = bounded(tuning.motion_gain, 0.25f, 2.0f);
+    published.tuning.left_remote = tuning.left_remote;
+}
+
+OpenXRWiiRemoteTuning OpenXRGetWiiRemoteTuning() noexcept {
+    auto& published = wii_remote_bridge::Published();
+    std::lock_guard lock(published.mutex);
+    return published.tuning;
+}
 
 void OpenXRSetControllerMode(OpenXRControllerMode mode) noexcept {
     wii_remote_bridge::g_mode.store(mode, std::memory_order_relaxed);

@@ -18,6 +18,8 @@ public:
     // native-endian interleaved left, right samples.
     bool PushWiiAiSamplesBE16(const uint8_t* data, size_t bytes);
     bool PushSamplesLE16(const int16_t* samples, size_t sampleCount);
+    // Opt-in, bounded developer capture; never enabled in normal playback.
+    static void DebugDumpPcm(bool mixed, const void* data, size_t bytes);
 
     // Applied to the final host output, covering both AX and direct AI DMA.
     void SetMasterVolume(float volume);

@@ -27,6 +27,10 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#if defined(__ANDROID__) && defined(MKW_GAME_MP9)
+#include <sys/system_properties.h>
+#endif
 
 namespace AxDspHle {
 namespace {
@@ -644,11 +648,56 @@ private:
         }
     }
 
+    struct VoiceProbe {
+        uint32_t lastOutput = 0, lastHash = 0;
+        uint64_t blocks = 0, guestCursorChanges = 0, wraps = 0, sourceChanges = 0;
+        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    };
+    static void TraceMusicVoice(uint32_t address, uint32_t inputCursor, const AXPBWii& pb) {
+#if defined(__ANDROID__) && defined(MKW_GAME_MP9)
+        static const bool enabled = [] {
+            char value[PROP_VALUE_MAX]{};
+            return __system_property_get("debug.wiicompiled.voice_trace", value) > 0 && value[0] == '1';
+        }();
+        if (!enabled || !pb.running) return;
+        static std::unordered_map<uint32_t, VoiceProbe> probes;
+        if (!probes.contains(address) && probes.size() >= 256) return;
+        auto& p = probes[address];
+        const auto output = Hilo(pb.audio_addr.cur_addr_hi, pb.audio_addr.cur_addr_lo);
+        p.guestCursorChanges += p.blocks && p.lastOutput != inputCursor;
+        p.wraps += output < inputCursor;
+        p.lastOutput = output;
+        ++p.blocks;
+        if ((p.blocks & 127u) == 0) {
+            const uint32_t loop = Hilo(pb.audio_addr.loop_addr_hi, pb.audio_addr.loop_addr_lo);
+            const unsigned format = pb.audio_addr.sample_format & 3u;
+            const uint32_t begin = format == 0 ? loop >> 1 : format == 2 ? loop * 2 : loop;
+            uint32_t hash = 2166136261u;
+            for (unsigned i = 0; i < 64; ++i) hash = (hash ^ ReadAramByte(begin + i)) * 16777619u;
+            p.sourceChanges += p.lastHash && p.lastHash != hash;
+            p.lastHash = hash;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        const double seconds = std::chrono::duration<double>(now - p.start).count();
+        if (seconds >= 5) {
+            RT_LOG(RT_TAG_AUDIO) << "[mp9-voice] pb=0x" << std::hex << address
+                << " cursor=0x" << inputCursor << "->0x" << output
+                << " loop=0x" << Hilo(pb.audio_addr.loop_addr_hi, pb.audio_addr.loop_addr_lo)
+                << " end=0x" << Hilo(pb.audio_addr.end_addr_hi, pb.audio_addr.end_addr_lo)
+                << std::dec << " stream=" << pb.is_stream << " format=" << pb.audio_addr.sample_format
+                << " seconds=" << seconds << " blocks=" << p.blocks
+                << " guest_cursor_changes=" << p.guestCursorChanges << " wraps=" << p.wraps
+                << " source_changes=" << p.sourceChanges << std::endl;
+            p.start = now; p.blocks = p.guestCursorChanges = p.wraps = p.sourceChanges = 0;
+        }
+#endif
+    }
     void ProcessPBList(uint32_t pbAddr, bool newFilter, bool oldAxLayout) {
         uint32_t guard = 0;
         while (pbAddr && guard++ < 256) {
             AXPBWii pb{};
             ReadPB(pbAddr, pb);
+            const uint32_t inputCursor = Hilo(pb.audio_addr.cur_addr_hi, pb.audio_addr.cur_addr_lo);
             AXBuffers buffers = MixBuffers();
             const AXMixControl control = ConvertMixerControl(Hilo(pb.mixer_control_hi, pb.mixer_control_lo));
             if (oldAxLayout && (pb.updates.num_updates[0] | pb.updates.num_updates[1] | pb.updates.num_updates[2]) != 0) {
@@ -662,6 +711,7 @@ private:
                 ProcessVoice(pb, buffers, kAxSamplesPerFrame, control, BaseCoefficients(), newFilter);
             }
             WritePB(pbAddr, pb);
+            TraceMusicVoice(pbAddr, inputCursor, pb);
             pbAddr = Hilo(pb.next_pb_hi, pb.next_pb_lo);
         }
     }
@@ -1250,6 +1300,7 @@ private:
             pcm[i * 2] = right;
             pcm[i * 2 + 1] = left;
         }
+        AudioBackend::DebugDumpPcm(true, pcm.data(), pcm.size() * sizeof(int16_t));
         // The AI frame (contiguous right/left interleaved) lands in guest memory directly
         // even from the worker: its only reader, PushAudioBlock, runs after Audio_HLE_Tick
         // has joined the worker, so the guest never observes a half-written frame.

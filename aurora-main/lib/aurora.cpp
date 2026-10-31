@@ -6,6 +6,7 @@
 #include "gfx/foveation.hpp"
 #include "gfx/stereo_replay.hpp"
 #include "gx/fifo.hpp"
+#include "gx/command_processor.hpp"
 #include "gx/shader_info.hpp"
 #include "imgui.hpp"
 #include "stereo.hpp"
@@ -785,7 +786,8 @@ std::optional<AuroraStereoFrame> request_stereo_frame(uint32_t logicalFrame, uin
   for (uint32_t eye = 0; eye < AURORA_STEREO_EYE_COUNT; ++eye) {
     const auto& input = frame.eyes[eye];
     const bool transformsValid = frame.mode == AURORA_STEREO_FRAME_VIRTUAL_SCREEN ||
-                                 (finite(input.projection, 16) && finite(input.viewFromCenter, 12));
+                                 (finite(input.projection, 16) && finite(input.viewFromCenter, 12) &&
+                                  finite(frame.sceneOffset, 3));
     if (input.width == 0 || input.height == 0 || !transformsValid) {
       Log.warn("Stereo frame {} has invalid eye {} dimensions or transforms; rendering in mono", logicalFrame, eye);
       return std::nullopt;
@@ -832,10 +834,22 @@ std::optional<AuroraStereoFrame> request_stereo_frame(uint32_t logicalFrame, uin
 gfx::StereoReplayFrame make_stereo_replay_frame(const AuroraStereoFrame& input, const StereoSceneAnchor& sceneAnchor) {
   Mat3x4<float> anchorFromScene;
   std::memcpy(&anchorFromScene, sceneAnchor.anchorFromScene.data(), sizeof(anchorFromScene));
+  if (input.sceneOffset[0] != 0.f || input.sceneOffset[1] != 0.f || input.sceneOffset[2] != 0.f) {
+    if (!sceneAnchor.active) {
+      anchorFromScene = {};
+      anchorFromScene.m0[0] = anchorFromScene.m1[1] = anchorFromScene.m2[2] = 1.f;
+    }
+    anchorFromScene.m0[3] += input.sceneOffset[0];
+    anchorFromScene.m1[3] += input.sceneOffset[1];
+    anchorFromScene.m2[3] += input.sceneOffset[2];
+  }
+  const bool anchored = sceneAnchor.active || input.sceneOffset[0] != 0.f ||
+                        input.sceneOffset[1] != 0.f || input.sceneOffset[2] != 0.f;
   gfx::StereoReplayFrame replay{};
   replay.cockpit = input.cockpit;
   replay.cockpitItem = sceneAnchor.cockpitItem;
   replay.window = input.mode == AURORA_STEREO_FRAME_IMMERSIVE_REPLAY && input.window;
+  replay.tabletop = input.mode == AURORA_STEREO_FRAME_IMMERSIVE_REPLAY && input.tabletop;
   // The sealed guest frame owns its scale. The packet may have been sampled
   // just before a change of scale (a character swap, a lightning strike), so
   // only its head/IPD translation is rescaled to the frame's.
@@ -876,13 +890,13 @@ gfx::StereoReplayFrame make_stereo_replay_frame(const AuroraStereoFrame& input, 
     // World draws already carry the recorded camera, so they need the anchor
     // folded in; the virtual screen is authored in the anchored camera's space
     // and keeps viewFromCenter.
-    view.viewFromScene = sceneAnchor.active
+    view.viewFromScene = anchored
                              ? gfx::stereo_replay::compose_affine(view.viewFromCenter, anchorFromScene)
                              : view.viewFromCenter;
     // A mirror-mode draw takes the same route from the mirrored eye delta, so the
     // reflection its projection carries is taken in the anchored camera's space.
     const auto mirroredFromCenter = gfx::stereo_replay::mirror_view_delta_x(view.viewFromCenter);
-    view.viewFromSceneMirrored = sceneAnchor.active
+    view.viewFromSceneMirrored = anchored
                                      ? gfx::stereo_replay::compose_affine(mirroredFromCenter, anchorFromScene)
                                      : mirroredFromCenter;
   }
@@ -978,13 +992,16 @@ struct PendingFrameCapture {
 };
 
 std::optional<PendingFrameCapture> encode_frame_capture(const wgpu::CommandEncoder& encoder,
-                                                        const webgpu::PresentSource& source) {
+                                                        const webgpu::PresentSource& source,
+                                                        const std::string& additionalPath = {}) {
   const uint32_t requestedFrame = g_captureFrame.load(std::memory_order_acquire);
   const uint32_t currentFrame = gfx::current_frame();
-  if (requestedFrame == UINT32_MAX || currentFrame < requestedFrame)
+  if (additionalPath.empty() && (requestedFrame == UINT32_MAX || currentFrame < requestedFrame))
     return std::nullopt;
-  g_captureFrame.store(UINT32_MAX, std::memory_order_release);
-  if (currentFrame != requestedFrame) {
+  if (additionalPath.empty()) g_captureFrame.store(UINT32_MAX, std::memory_order_release);
+  // Frame zero also serves as a request for the next available frame, allowing
+  // development tools to capture without racing the render frame counter.
+  if (additionalPath.empty() && requestedFrame != 0 && currentFrame != requestedFrame) {
     Log.error("Missed requested frame capture {} (current frame {})", requestedFrame, currentFrame);
     return std::nullopt;
   }
@@ -1027,7 +1044,7 @@ std::optional<PendingFrameCapture> encode_frame_capture(const wgpu::CommandEncod
       .bytesPerRow = bytesPerRow,
       .bufferSize = bufferSize,
       .bgra = bgra,
-      .path = g_captureOutputPath,
+      .path = additionalPath.empty() ? g_captureOutputPath : additionalPath,
   };
 }
 
@@ -2336,6 +2353,14 @@ std::vector<PresentationJob> encode_sealed_frame(gfx::SealedFrame& sealedFrame, 
     pendingStereoSink = run_stereo_sink(encoder, ctx.stereoFrameToken, ctx.logicalFrame, ctx.stereoFrameMode);
   }
   auto pendingFrameCapture = encode_frame_capture(encoder, ctx.presentSource);
+  // A requested developer capture also records the actual immersive eye. The
+  // original mono capture stays unchanged for menu automation and comparison.
+  std::optional<PendingFrameCapture> pendingEyeCapture;
+  if (pendingFrameCapture && stereoOutput && immersiveReplay) {
+    const auto& eye = g_stereoEyeTargets[0].output();
+    const webgpu::PresentSource eyeSource{.texture = eye.texture, .size = eye.size, .format = eye.format};
+    pendingEyeCapture = encode_frame_capture(encoder, eyeSource, pendingFrameCapture->path + ".left.bmp");
+  }
   presentationJobs.push_back({
       .image = std::move(finalImage),
       .logicalFrame = ctx.logicalFrame,
@@ -2382,6 +2407,7 @@ std::vector<PresentationJob> encode_sealed_frame(gfx::SealedFrame& sealedFrame, 
   if (pendingFrameCapture.has_value()) {
     complete_frame_capture(*pendingFrameCapture);
   }
+  if (pendingEyeCapture) complete_frame_capture(*pendingEyeCapture);
   gfx::after_submit();
   gfx::g_stats.presentedFrameCount = static_cast<uint32_t>(presentationJobs.size());
   gfx::g_stats.interpolatedFrameCount = ctx.interpolatedFrameCount;
@@ -2875,6 +2901,21 @@ void aurora_set_stereo_cockpit_item(const AuroraCockpitItem* item) {
 }
 void aurora_set_stereo_local_player_count(uint32_t count) {
   aurora::g_pendingStereoLocalPlayerCount = count >= 1 && count <= 4 ? count : 1;
+}
+
+void aurora_set_tabletop_supported(bool supported) {
+#ifdef AURORA_ENABLE_GX
+  std::lock_guard lock(aurora::renderer_gpu_mutex());
+  aurora::gx::fifo::set_tabletop_supported(supported);
+#endif
+}
+bool aurora_take_perspective_evidence(AuroraPerspectiveEvidence* evidence) {
+#ifdef AURORA_ENABLE_GX
+  return aurora::gx::fifo::take_perspective_evidence(evidence);
+#else
+  if (evidence) *evidence = {};
+  return false;
+#endif
 }
 void aurora_set_frame_worker_wait_callback(AuroraFrameWorkerWaitCallback callback) {
   aurora::g_frameWorkerWaitCallback.store(callback, std::memory_order_release);

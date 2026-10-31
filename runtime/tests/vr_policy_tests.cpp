@@ -41,6 +41,16 @@ int main() {
         check(MkwVRPolicyGetSnapshot().content_tag == previous_tag, "steady frames must keep the same tag");
     }
     camera.guest_frame_index = 11;
+    const auto windowTag = MkwVRPolicyGetSnapshot().content_tag;
+    camera.tabletop = true;
+    MkwVRPolicyPublishRaceCamera(camera);
+    check(MkwVRPolicyGetSnapshot().content_tag != windowTag, "tabletop must reject retained window packets");
+    const auto tableTag = MkwVRPolicyGetSnapshot().content_tag;
+    MkwVRPolicyPublishRaceCamera(camera);
+    check(MkwVRPolicyGetSnapshot().content_tag == tableTag, "steady tabletop camera keeps its tag");
+    camera.tabletop = false;
+    MkwVRPolicyPublishRaceCamera(camera);
+    check(MkwVRPolicyGetSnapshot().content_tag != tableTag, "window must reject retained tabletop packets");
     MkwVRPolicyPublishRaceCamera(camera);
     check(MkwVRPolicyGetSnapshot().presentation == VRPresentationMode::ImmersiveRace,
           "adjacent camera publication is coherent");

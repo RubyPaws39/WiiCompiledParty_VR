@@ -34,10 +34,14 @@ bool describe(GXTexFmt format, Layout& layout, BlockInfo& block) noexcept {
   switch (format) {
   case GX_TF_I4:
   case GX_CTF_R4:
+  case GX_CTF_Z4:
     layout = Layout::I4;
     block = {8, 8, 32};
     return true;
   case GX_TF_I8:
+  case GX_TF_Z8: // Converted depth texture carries the high-Z byte in red.
+  case GX_CTF_Z8M:
+  case GX_CTF_Z8L:
   case GX_CTF_A8:
   case GX_CTF_R8:
   case GX_CTF_G8:
@@ -52,6 +56,7 @@ bool describe(GXTexFmt format, Layout& layout, BlockInfo& block) noexcept {
     return true;
   case GX_TF_IA8:
   case GX_TF_Z16:
+  case GX_CTF_Z16L:
   case GX_CTF_RA8:
   case GX_CTF_RG8:
   case GX_CTF_GB8:

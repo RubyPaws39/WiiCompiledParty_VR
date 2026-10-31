@@ -20,7 +20,7 @@ natively on the headset.
 > [!WARNING]
 > **Work in progress — not playable yet.** The APK currently builds, installs,
 > launches an OpenXR session, imports a locally built private game package,
-> and boots through native SDK initialization, but no game scene runs yet.
+> and renders the original save screen and title. Menu transition still crashes.
 > Do not treat any current build as a finished port.
 
 ---
@@ -67,6 +67,9 @@ the MP9 disc manifest:
 
 The build audits the APK for bundled game content (`libmain*.so`, DOL/REL/
 RVZ/ISO/WBFS, translated objects) and fails if any is found.
+
+See [current device status](docs/MP9_STATUS.md), [MuseSpark handoff](docs/MP9_HANDOFF.md),
+and [maintainer rebuild tools](projects/mp9/README.md) for the MP9-specific workflow.
 
 ## Current status and roadmap
 

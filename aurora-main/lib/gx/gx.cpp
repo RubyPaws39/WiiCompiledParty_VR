@@ -1610,7 +1610,8 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
                                     wgpu::ShaderModule shader, const char* label) noexcept {
   ZoneScoped;
   const bool stencilTarget = (config.stereoStencil & kStereoStencilFormat) != 0;
-  const bool maskCockpit = stencilTarget && config.shaderConfig.exactScreenDepth;
+  const bool maskCockpit = stencilTarget && config.shaderConfig.exactScreenDepth &&
+                           !(config.stereoStencil & kTabletopAlpha);
   const wgpu::StencilFaceState stencil{
       .compare = maskCockpit ? wgpu::CompareFunction::Equal : wgpu::CompareFunction::Always,
   };
@@ -1638,6 +1639,11 @@ wgpu::RenderPipeline build_pipeline(const PipelineConfig& config, ArrayRef<wgpu:
         .srcFactor = wgpu::BlendFactor::One,
         .dstFactor = wgpu::BlendFactor::Zero,
     };
+  }
+  if ((config.stereoStencil & kTabletopAlpha) != 0) {
+    // Preserve the game's RGB blend; track coverage rather than Wii EFB alpha.
+    blendState.alpha = {wgpu::BlendOperation::Add, wgpu::BlendFactor::One,
+                       wgpu::BlendFactor::OneMinusSrcAlpha};
   }
   const std::array colorTargets{wgpu::ColorTargetState{
       .format = g_graphicsConfig.surfaceConfiguration.format,

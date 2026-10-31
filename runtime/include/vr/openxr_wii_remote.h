@@ -64,6 +64,14 @@ void OpenXRPublishWiiRemote(uint32_t sdl_joystick_id, const OpenXRWiiRemoteSampl
 void OpenXRWithdrawWiiRemote() noexcept;
 bool OpenXRWiiRemoteRumbleRequested() noexcept;
 
+struct OpenXRWiiRemoteTuning {
+    float pointer_gain = 1.0f;
+    float motion_gain = 1.0f;
+    bool left_remote = false;
+};
+void OpenXRSetWiiRemoteTuning(const OpenXRWiiRemoteTuning& tuning) noexcept;
+OpenXRWiiRemoteTuning OpenXRGetWiiRemoteTuning() noexcept;
+
 // The geometry and signal conditioning behind a sample, kept free of OpenXR
 // types so it can be checked headlessly (tests/vr_wii_remote_tests.cpp).
 //
@@ -191,6 +199,14 @@ inline Vec3 KpadAcceleration(const Quat& orientation, const Vec3& world_accelera
         return std::clamp(value / kStandardGravity, -kAccelRangeG, kAccelRangeG);
     };
     return {axis(local[0]), axis(-local[1]), axis(local[2])};
+}
+
+inline Vec3 ScaleKpadMotion(Vec3 measured, const Quat& orientation, float gain) noexcept {
+    const auto rest = KpadAcceleration(orientation, {});
+    for (size_t axis = 0; axis < measured.size(); ++axis) {
+        measured[axis] = std::clamp(rest[axis] + (measured[axis] - rest[axis]) * gain, -kAccelRangeG, kAccelRangeG);
+    }
+    return measured;
 }
 
 // Differentiates a controller's linear velocity into the acceleration its

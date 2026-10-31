@@ -134,8 +134,9 @@ void AdvanceSafetyGeneration(PolicyState& state) noexcept {
 template <typename Mutation>
 void ApplyPolicyMutation(Mutation&& mutation) noexcept {
     const VRPresentationMode previous = SelectStablePresentation(g_policy);
+    const bool previousTabletop = g_policy.camera.tabletop;
     mutation();
-    if (SelectStablePresentation(g_policy) != previous) {
+    if (SelectStablePresentation(g_policy) != previous || g_policy.camera.tabletop != previousTabletop) {
         AdvanceSafetyGeneration(g_policy);
     }
 }

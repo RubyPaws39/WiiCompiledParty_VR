@@ -219,6 +219,16 @@ static void GX__CopyTex_gx(uint32_t da, uint32_t c, uint32_t srcLeft, uint32_t s
     GXSetTexCopySrc(rawSrcLeft, rawSrcTop, rawSrcWidth, rawSrcHeight);
 }
 extern "C" void GX__CopyTex_8016fd74(uint32_t da, uint32_t c) {
+#if defined(MKW_GAME_MP9)
+    static unsigned copyLogs = 0;
+    if (copyLogs++ < 12) {
+        RT_LOG(RT_TAG_GX) << "[mp9-texcopy] dst=0x" << std::hex << da << std::dec
+            << " src=" << g_texCopyState.srcLeft << "," << g_texCopyState.srcTop
+            << "," << g_texCopyState.srcWidth << "x" << g_texCopyState.srcHeight
+            << " output=" << g_texCopyState.dstWidth << "x" << g_texCopyState.dstHeight
+            << " fmt=" << g_texCopyState.dstFormat << " clear=" << c << std::endl;
+    }
+#endif
     GxThread::Post(&GX__CopyTex_gx, da, c, g_texCopyState.srcLeft, g_texCopyState.srcTop,
                    g_texCopyState.srcWidth, g_texCopyState.srcHeight);
     RememberEfbCopyDestination(

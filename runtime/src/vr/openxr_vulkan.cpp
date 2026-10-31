@@ -962,7 +962,8 @@ public:
         // The immersive window's eyes are transparent outside the window (premultiplied alpha), so
         // the room shows around it; otherwise the race covers the whole view and alpha is ignored.
         projection.layerFlags =
-            frame.presentation.immersive_window ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
+            (frame.presentation.immersive_window || frame.presentation.tabletop)
+                ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
         projection.space = runtime_->AppSpace();
         projection.viewCount = kOpenXREyeCount;
         projection.views = views.data();
@@ -981,7 +982,7 @@ public:
         uint32_t count = 0;
         if (const XrCompositionLayerBaseHeader* passthrough = passthrough_.Layer();
             passthrough != nullptr && (frame.presentation.mode == OpenXRFrameMode::VirtualScreen ||
-                                       frame.presentation.immersive_window)) {
+                                       frame.presentation.immersive_window || frame.presentation.tabletop)) {
             layers[count++] = passthrough;
         }
         layers[count++] = scene;

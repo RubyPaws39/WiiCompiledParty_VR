@@ -15,6 +15,7 @@
 #include "vr/mkw_vr_culling.h"
 #include "vr/mkw_vr_first_person.h"
 #include "vr/mkw_vr_policy.h"
+#include "vr/mp9_mixed_reality.h"
 #include "vr/openxr_diagnostics.h"
 #include "vr/openxr_driving.h"
 #include "vr/openxr_integration.h"
@@ -134,7 +135,11 @@ int g_displayMode = [] {
     }
     return static_cast<int>(AURORA_DISPLAY_MODE_WINDOWED);
 }();
+#if defined(MKW_GAME_MP9)
+bool g_skipUnreadyPipelines = RuntimeConfigFile::SkipUnreadyPipelines(false);
+#else
 bool g_skipUnreadyPipelines = RuntimeConfigFile::SkipUnreadyPipelines(true);
+#endif
 bool g_disableCopyFilter = RuntimeConfigFile::DisableCopyFilter(true);
 bool g_showFps = RuntimeConfigFile::ShowFps();
 // The same default the VR path itself takes (kVrEnabledDefault), so the F10 switch
@@ -877,6 +882,43 @@ void DrawRumbleSettings() {
 // What the headset's controllers are to the game. One choice for the pair, whichever port they
 // land on, and live like the rest of the VR settings: without a session it is what the next starts on.
 void DrawVrControllerSettings() {
+#if defined(MKW_GAME_MP9)
+    ImGui::TextWrapped("Quest controllers act as one Wii Remote. Aim the selected controller at game menus.");
+    auto tuning = mkw::vr::OpenXRGetWiiRemoteTuning();
+    bool tuningChanged = ImGui::Checkbox("Use left hand for pointing and motion", &tuning.left_remote);
+    bool saveTuning = tuningChanged;
+    tuningChanged |= ImGui::SliderFloat("Pointer sensitivity", &tuning.pointer_gain, 0.5f, 2.0f, "%.2f");
+    saveTuning |= ImGui::IsItemDeactivatedAfterEdit();
+    tuningChanged |= ImGui::SliderFloat("Shake strength", &tuning.motion_gain, 0.25f, 2.0f, "%.2f");
+    saveTuning |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::Button("Reset pointing and motion")) {
+        tuning = {};
+        tuningChanged = saveTuning = true;
+    }
+    if (tuningChanged) {
+        mkw::vr::OpenXRSetWiiRemoteTuning(tuning);
+    }
+    if (saveTuning) {
+        auto& config = RuntimeConfigFile::Mutable();
+        config.mp9PointerGain = tuning.pointer_gain;
+        config.mp9MotionGain = tuning.motion_gain;
+        config.mp9LeftRemote = tuning.left_remote;
+        RuntimeConfigFile::WriteSetting("mp9_vr", "pointer_gain", std::to_string(tuning.pointer_gain));
+        RuntimeConfigFile::WriteSetting("mp9_vr", "motion_gain", std::to_string(tuning.motion_gain));
+        RuntimeConfigFile::WriteSetting("mp9_vr", "left_remote", tuning.left_remote ? "true" : "false");
+    }
+    if (ImGui::Button("Use Quest Wii Remote controls")) {
+        g_vrControllerMode = static_cast<int>(mkw::vr::OpenXRControllerMode::WiiRemote);
+        mkw::vr::OpenXRSetControllerMode(mkw::vr::OpenXRControllerMode::WiiRemote);
+        RuntimeConfigFile::SetVrControllerMode("wii_remote");
+    }
+    ImGui::TextWrapped("Right A = Wii A; right trigger = Wii B. Title: hold both together. "
+                       "Left X = Wii 1; right B = Wii 2; left stick = D-pad. "
+                       "Left Menu or stick click = +; left trigger = -. "
+                       "Move and tilt the selected controller for motion minigames. Button assignments stay unchanged.");
+    ImGui::TextWrapped("Left Y opens settings. Aim either controller and pull its trigger to select; "
+                       "thumbsticks scroll. Right stick click recenters. Settings block game input until buttons release.");
+#else
     if (ImGui::Combo("VR controllers", &g_vrControllerMode, kVrControllerModeLabels.data(),
                      static_cast<int>(kVrControllerModeLabels.size()))) {
         mkw::vr::OpenXRSetControllerMode(static_cast<mkw::vr::OpenXRControllerMode>(g_vrControllerMode));
@@ -894,6 +936,7 @@ void DrawVrControllerSettings() {
             "so a desktop gamepad or a Wii Remote plays instead. Left Y still opens the settings panel.\n"
             "Applies immediately; the game sees the controller change as a reconnection.");
     }
+#endif
     if (mkw::vr::OpenXRIsRunning() &&
         mkw::vr::OpenXRGetControllerMode() == mkw::vr::OpenXRControllerMode::WiiRemote) {
         mkw::vr::OpenXRWiiRemoteSample remote;
@@ -912,6 +955,10 @@ void DrawVrControllerSettings() {
 void DrawControllerSettings() {
     // First, since the per-port settings below stop early when a port has nothing to show.
     DrawVrControllerSettings();
+#if defined(MKW_GAME_MP9)
+    DrawRumbleSettings();
+    return;
+#endif
     ImGui::Separator();
     if (ImGui::CollapsingHeader("USB wheel and pedals (player 1)")) {
         physical_wheel::DrawSettings();
@@ -1331,6 +1378,21 @@ void DrawVrSteeringWheelSettings() {
 }
 
 void DrawGraphicsSettings() {
+#if defined(MKW_GAME_MP9)
+    if (ImGui::Checkbox("Show FPS", &g_showFps)) {
+        RuntimeConfigFile::SetShowFps(g_showFps);
+    }
+    if (ImGui::Checkbox("Skip draws while shaders compile", &g_skipUnreadyPipelines)) {
+        aurora_set_skip_unready_pipelines(g_skipUnreadyPipelines);
+        RuntimeConfigFile::SetSkipUnreadyPipelines(g_skipUnreadyPipelines);
+    }
+    if (ImGui::Checkbox("Disable copy filter", &g_disableCopyFilter)) {
+        aurora_set_disable_copy_filter(g_disableCopyFilter);
+        RuntimeConfigFile::SetDisableCopyFilter(g_disableCopyFilter);
+    }
+    ImGui::TextWrapped("Skipping unfinished shaders can temporarily hide objects. Turn off for complete frames; first use may stall.");
+    return;
+#endif
     g_displayMode = static_cast<int>(aurora_get_display_mode());
     struct EffectFlag {
         const char* label;
@@ -1425,6 +1487,75 @@ void DrawGraphicsSettings() {
 // group, and keeping them out of Graphics stops that menu from running off the
 // bottom of the screen.
 void DrawVrSettings() {
+#if defined(MKW_GAME_MP9)
+    ImGui::SeparatorText("Mario Party 9 Mixed Reality");
+    auto mr = mkw::vr::mp9_mr::Read();
+    if (ImGui::Checkbox("Mixed Reality", &mr.enabled)) mkw::vr::mp9_mr::SetEnabled(mr.enabled);
+    ImGui::TextWrapped("MR keeps a placed stereo game window in your room. Menus remain fixed. Full tabletop conversion is still in development.");
+    if (mr.enabled) {
+        ImGui::TextWrapped("Close settings, then click right stick to place. Left stick: height / model scale. Right stick: screen size / turn. Right grip: carry. A/B: done.");
+        ImGui::Text("Model scale: %.0f units/m | Screen: %.2f m", mr.units, mr.width);
+    }
+    ImGui::TextWrapped("Settings save in this app's Config.toml, separately from Mario Kart's Android app.");
+    if (ImGui::Button("Recenter screen")) {
+        mkw::vr::OpenXRRequestRecenter();
+    }
+    auto policy = mkw::vr::MkwVRPolicyGetSnapshot().config;
+    bool immersive = policy.immersive_races;
+    if (ImGui::Checkbox("Stereo gameplay", &immersive)) {
+        mkw::vr::mp9_mr::SetPresentation(immersive, mr.room);
+        g_vrFlatScreen = !immersive;
+        RuntimeConfigFile::SetVrFlatScreen(!immersive);
+        mkw::vr::MkwVRPolicySetImmersiveRaces(immersive);
+        policy.immersive_races = immersive;
+    }
+    ImGui::BeginDisabled(mr.enabled);
+    if (ImGui::SliderFloat("World units per meter", &policy.world_units_per_meter, 10.0f, 10000.0f, "%.0f")) {
+        mkw::vr::MkwVRPolicyConfigure(policy);
+        ApplyVrHudVirtualScreen();
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        RuntimeConfigFile::Mutable().vrWorldUnitsPerMeter = policy.world_units_per_meter;
+        RuntimeConfigFile::WriteSetting("vr", "world_units_per_meter", std::to_string(policy.world_units_per_meter));
+    }
+    bool geometryChanged = ImGui::SliderFloat("Screen width (m)", &policy.hud_width_meters, 0.5f, 5.0f, "%.2f");
+    bool geometryReleased = ImGui::IsItemDeactivatedAfterEdit();
+    geometryChanged |= ImGui::SliderFloat("Screen distance (m)", &policy.hud_distance_meters, 0.5f, 5.0f, "%.2f");
+    geometryReleased |= ImGui::IsItemDeactivatedAfterEdit();
+    if (geometryChanged) {
+        mkw::vr::MkwVRPolicyConfigure(policy);
+        mkw::vr::OpenXRRequestRecenter();
+    }
+    if (geometryReleased) {
+        RuntimeConfigFile::Mutable().vrHudWidthMeters = policy.hud_width_meters;
+        RuntimeConfigFile::Mutable().vrHudDistanceMeters = policy.hud_distance_meters;
+        RuntimeConfigFile::WriteSetting("vr", "hud_width_meters", std::to_string(policy.hud_width_meters));
+        RuntimeConfigFile::WriteSetting("vr", "hud_distance_meters", std::to_string(policy.hud_distance_meters));
+    }
+    ImGui::EndDisabled();
+#if defined(__ANDROID__)
+    if (mr.enabled) g_vrPassthrough = mr.room;
+    if (ImGui::Checkbox("Show room around screen", &g_vrPassthrough)) {
+        mkw::vr::mp9_mr::SetPresentation(immersive, g_vrPassthrough);
+        mkw::vr::OpenXRSetPassthrough(g_vrPassthrough);
+        RuntimeConfigFile::SetVrPassthrough(g_vrPassthrough);
+    }
+#endif
+    ImGui::SliderInt("Render resolution", &g_vrRenderScalePercent,
+                    static_cast<int>(RuntimeConfigFile::kVrRenderScaleMin * 100.0f),
+                    static_cast<int>(RuntimeConfigFile::kVrRenderScaleMax * 100.0f), "%d%%",
+                    ImGuiSliderFlags_AlwaysClamp);
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        const float scale = static_cast<float>(g_vrRenderScalePercent) / 100.0f;
+        mkw::vr::OpenXRSetRenderScale(scale);
+        RuntimeConfigFile::SetVrRenderScale(scale);
+    }
+    const auto timing = mkw::vr::OpenXRGetFrameTiming();
+    ImGui::TextDisabled("Headset %.1f Hz | New frames %.1f FPS", timing.headset_hz, timing.rendered_fps);
+    ImGui::Separator();
+    DrawVrControllerSettings();
+    return;
+#endif
     const auto xrError = mkw::vr::OpenXRLastError();
     if (!xrError.empty()) {
         ImGui::TextWrapped("OpenXR unavailable: %s", xrError.c_str());
@@ -2196,10 +2327,12 @@ void DrawTopBar() {
         ImGui::EndMenu();
     }
 
+#if !defined(MKW_GAME_MP9)
     if (ImGui::BeginMenu("Camera")) {
         DrawVrCameraSettings();
         ImGui::EndMenu();
     }
+#endif
 
     if (ImGui::BeginMenu("Controller settings")) {
         DrawControllerSettings();
@@ -2377,7 +2510,23 @@ void DrawVrSettingsPanelWindow() {
     constexpr ImGuiWindowFlags kFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
     if (ImGui::Begin("WiiCompiled settings", nullptr, kFlags)) {
+#if defined(MKW_GAME_MP9)
+        if (mkw::vr::mp9_mr::Read().placing) {
+            ImGui::TextUnformatted("Mario Party 9 - MR placement");
+            ImGui::Separator();
+            ImGui::TextWrapped("Right trigger: place at controller tip. Right grip: carry.");
+            ImGui::TextWrapped("Right stick up/down: screen size. Left/right: rotate.");
+            ImGui::TextWrapped("Left stick up/down: height. Left/right: model size.");
+            ImGui::TextWrapped("Left trigger: match left controller height. Left stick click: stereo on/off.");
+            ImGui::TextWrapped("X: room on/off. Y: eye resolution 50/75/100%%.");
+            ImGui::TextWrapped("A, B, Menu or right stick click: done. Game input withheld while placing.");
+            ImGui::End();
+            return;
+        }
+        ImGui::TextUnformatted("Mario Party 9 - WiiCompiled settings");
+#else
         ImGui::TextUnformatted("WiiCompiled settings");
+#endif
         const ImGuiStyle& style = ImGui::GetStyle();
         const float recenterWidth = ImGui::CalcTextSize("Recenter view").x + style.FramePadding.x * 2.0f;
         const float closeWidth = ImGui::CalcTextSize("Close").x + style.FramePadding.x * 2.0f;
@@ -2406,7 +2555,9 @@ void DrawVrSettingsPanelWindow() {
                 }
             };
             tab("VR", DrawVrSettings);
+#if !defined(MKW_GAME_MP9)
             tab("Camera", DrawVrCameraSettings);
+#endif
             tab("Graphics", [] {
                 DrawResolutionMenu();
                 ImGui::Separator();
@@ -2425,7 +2576,13 @@ void DrawVrSettingsPanelWindow() {
 // worker done: the draw data handed to Aurora must stay put until the next
 // frame is encoded, and only the next call here rebuilds it.
 void DrawVrSettingsPanel() {
-    if (!mkw::vr::OpenXRIsRunning() || !mkw::vr::OpenXRSettingsPanelOpen()) {
+    const bool placement =
+#if defined(MKW_GAME_MP9)
+        mkw::vr::mp9_mr::Read().placing;
+#else
+        false;
+#endif
+    if (!mkw::vr::OpenXRIsRunning() || (!mkw::vr::OpenXRSettingsPanelOpen() && !placement)) {
         aurora_imgui_set_stereo_overlay(nullptr, 0.0f);
         return;
     }
@@ -2468,6 +2625,12 @@ void DrawVrSettingsPanel() {
 } // namespace
 
 void InitializeRuntimeSettings() noexcept {
+#if defined(MKW_GAME_MP9)
+    aurora_set_tabletop_supported(true);
+    mkw::vr::OpenXRSetWiiRemoteTuning({RuntimeConfigFile::Get().mp9PointerGain.value_or(1.0f),
+                                      RuntimeConfigFile::Get().mp9MotionGain.value_or(1.0f),
+                                      RuntimeConfigFile::Get().mp9LeftRemote.value_or(false)});
+#endif
 #if defined(__ANDROID__)
     // ImGui_ImplSDL3_NewFrame would otherwise call SDL_SetCursor/SDL_HideCursor
     // (Java on Android) from the guest fiber that starts the next host frame.
@@ -2577,6 +2740,9 @@ void ReleaseControllers() noexcept {
 }
 
 void Draw() noexcept {
+#if defined(MKW_GAME_MP9)
+    mkw::vr::mp9_mr::PersistPendingSettings();
+#endif
     // The overlay draws into the game thread's own ImGui frame
     // (aurora_imgui_host_frame_begin); the worker replays a copy of the draw
     // data, so there is nothing to wait for here.

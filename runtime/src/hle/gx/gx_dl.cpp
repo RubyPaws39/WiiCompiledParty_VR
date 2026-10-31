@@ -2,6 +2,7 @@
 #include "gx_stream_common.h"
 #include "gx_cp_decode.h"
 #include "isa/big_endian.h"
+#include "runtime_log.h"
 
 #include <cstdlib>
 #include <unordered_map>
@@ -790,8 +791,21 @@ struct DlMayContainDrawVisitor {
 
     bool OnNop(uint8_t) { return true; }
     bool OnBpReg(const uint8_t*, uint32_t) { return true; }
-    // An array base/stride write means the list is setting up indexed geometry.
-    bool OnCpReg(const uint8_t*, uint8_t reg, uint32_t) { return !(reg >= 0xA0 && reg <= 0xBF); }
+    // Layout-only lists also set up subsequent geometry. They must pass
+    // through the state scanner, not just update Aurora behind the HLE mirror.
+    bool OnCpReg(const uint8_t*, uint8_t reg, uint32_t value) {
+#if defined(MKW_GAME_MP9)
+        if (reg == 0x50 || reg == 0x60 || (reg >= 0x70 && reg <= 0x97)) {
+            static unsigned layoutLogs = 0;
+            if (layoutLogs++ < 16) {
+                RT_LOG(RT_TAG_GX) << "[mp9-layout-list] CP=" << static_cast<unsigned>(reg)
+                    << " value=" << value << std::endl;
+            }
+            return false;
+        }
+#endif
+        return !(reg >= 0xA0 && reg <= 0xBF);
+    }
     bool OnXfReg(const uint8_t*, uint32_t) { return true; }
     bool OnIndexedXf(const uint8_t*, uint8_t, uint32_t) { return true; }
     bool OnInvalidateVertexCache(uint8_t) { return true; }
@@ -1128,10 +1142,23 @@ static void ApplyAuroraVtxDesc() {
         // GXGetVtxDesc only decodes GX_VA_PNMTXIDX..GX_VA_TEX7; the XF array
         // pseudo-attributes above GX_VA_TEX7 have no CP descriptor bits, so
         // probing them would always report GX_NONE and republish a no-op.
+#if defined(MKW_GAME_MP9)
+        // Raw immediate draws can enable a field that the cached display-list
+        // layout disables. Restoring only indexed fields leaves that extra
+        // payload in Aurora's stride and truncates otherwise valid lists.
+        if (!needsPublish && gxAttr <= GX_VA_TEX7) {
+            needsPublish = !AuroraVtxDescMatchesLive(gxAttr, type);
+            static unsigned repairLogs = 0;
+            if (needsPublish && type == GX_NONE && repairLogs++ < 16) {
+                RT_LOG(RT_TAG_GX) << "[mp9-vcd-disable] attr=" << attr << std::endl;
+            }
+        }
+#else
         if (!needsPublish && !IsMatrixIndexAttr(gxAttr) && gxAttr <= GX_VA_TEX7 &&
             (type == GX_INDEX8 || type == GX_INDEX16)) {
             needsPublish = !AuroraVtxDescMatchesLive(gxAttr, type);
         }
+#endif
         if (needsPublish) {
             GXSetVtxDesc(gxAttr, type);
             s_appliedVtxDesc[attr] = type;
@@ -1166,7 +1193,28 @@ static void ApplyAuroraVtxAttrFmt(GXVtxFmt fmt) {
         if (IsMatrixIndexAttr(static_cast<GXAttr>(attr))) continue;
         const auto& f = g_hleGxState.vtxAttrFmt[fmt][attr];
         if (hadValidState && SameVtxAttrFmt(s_appliedVtxAttrFmt[fmt][attr], f)) {
+#if defined(MKW_GAME_MP9)
+            // The shared publication mirror copies all VAT rows even when
+            // only one format was submitted. MP9's next shape can use a row
+            // the native frontend has never received; verify its live bits.
+            if (attr >= GX_VA_POS && attr <= GX_VA_TEX7 && g_hleGxState.vtxDesc[attr] != GX_NONE) {
+                VtxAttrFmt live{};
+                GXGetVtxAttrFmt(fmt, static_cast<GXAttr>(attr), &live.cnt, &live.type, &live.frac);
+                if (SameVtxAttrFmt(live, f)) continue;
+                static unsigned mismatchLogs = 0;
+                if (mismatchLogs++ < 16) {
+                    RT_LOG(RT_TAG_GX) << "[mp9-vat-repair] fmt=" << static_cast<unsigned>(fmt)
+                        << " attr=" << attr << " guest/cache=" << static_cast<unsigned>(f.cnt)
+                        << "," << static_cast<unsigned>(f.type) << "," << static_cast<unsigned>(f.frac)
+                        << " native=" << static_cast<unsigned>(live.cnt) << ","
+                        << static_cast<unsigned>(live.type) << "," << static_cast<unsigned>(live.frac) << std::endl;
+                }
+            } else {
+                continue;
+            }
+#else
             continue;
+#endif
         }
         GXSetVtxAttrFmt(fmt, static_cast<GXAttr>(attr), f.cnt, f.type, f.frac);
         s_appliedVtxAttrFmt[fmt][attr] = f;

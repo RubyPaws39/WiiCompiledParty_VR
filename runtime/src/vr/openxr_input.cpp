@@ -16,6 +16,8 @@
 #include "settings_overlay.h"
 #include "vr/mkw_vr_first_person.h"
 #include "vr/openxr_diagnostics.h"
+#include "vr/mp9_mixed_reality.h"
+#include "vr/mkw_vr_policy.h"
 
 #include <SDL3/SDL_gamepad.h>
 #include <SDL3/SDL_joystick.h>
@@ -41,6 +43,69 @@
 
 namespace mkw::vr {
 namespace {
+#if defined(MKW_GAME_MP9)
+std::mutex g_mp9MrMutex;
+mp9_mr::Controls g_mp9Mr;
+bool g_mp9MrSave = false;
+bool g_mp9MrQualitySave = false;
+std::atomic_bool g_mp9MrHudRefresh{false};
+
+mp9_mr::Pose MrPose(const XrPosef& p) {
+    const float forwardX = -2.0f * (p.orientation.x * p.orientation.z + p.orientation.w * p.orientation.y);
+    const float forwardZ = -(1.0f - 2.0f * (p.orientation.x * p.orientation.x + p.orientation.y * p.orientation.y));
+    return {{p.position.x, p.position.y, p.position.z}, std::atan2(-forwardX, -forwardZ), true};
+}
+
+mp9_mr::Result UpdateMrPlacement(OpenXRRuntime& runtime, XrTime time,
+                                XrSpace right, XrSpace left,
+                                const std::array<wii_remote::HandInputs, 2>& hands, float seconds) {
+    const auto locate = [&](XrSpace space) {
+        mp9_mr::Pose pose{};
+        XrSpaceLocation location{XR_TYPE_SPACE_LOCATION};
+        constexpr auto valid = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+        if (space && XR_SUCCEEDED(xrLocateSpace(space, runtime.AppSpace(), time, &location)) &&
+            (location.locationFlags & valid) == valid) pose = MrPose(location.pose);
+        return pose;
+    };
+    mp9_mr::Input input{};
+    input.head = locate(runtime.ViewSpace());
+    input.right = locate(right);
+    input.left = locate(left);
+    input.leftX = hands[0].stick_x; input.leftY = hands[0].stick_y;
+    input.rightX = hands[1].stick_x; input.rightY = hands[1].stick_y;
+    input.leftGrip = hands[0].squeeze; input.rightGrip = hands[1].squeeze;
+    input.leftTrigger = hands[0].trigger; input.rightTrigger = hands[1].trigger;
+    input.leftClick = hands[0].thumbstick_click; input.rightClick = hands[1].thumbstick_click;
+    input.a = hands[1].primary; input.b = hands[1].secondary;
+    input.x = hands[0].primary; input.y = hands[0].secondary; input.menu = hands[0].menu;
+    input.settings = OpenXRSettingsPanelOpen(); input.seconds = seconds;
+    mp9_mr::Snapshot snapshot;
+    mp9_mr::Result result;
+    {
+        std::lock_guard lock(g_mp9MrMutex);
+        result = g_mp9Mr.Update(input);
+        snapshot = g_mp9Mr.state;
+        g_mp9MrSave |= result.save;
+        g_mp9MrQualitySave |= result.qualityChanged;
+    }
+    if (snapshot.enabled) {
+        const auto policy = MkwVRPolicyGetSnapshot();
+        auto config = policy.config;
+        const float units = policy.camera.tabletop ? config.world_units_per_meter : snapshot.units;
+        if (config.hud_width_meters != snapshot.width || config.world_units_per_meter != units ||
+            config.immersive_races != snapshot.stereo) {
+            config.hud_width_meters = snapshot.width;
+            config.world_units_per_meter = units;
+            config.immersive_races = snapshot.stereo;
+            MkwVRPolicyConfigure(config);
+            // Convert the unchanged physical HUD size at the same scale as world replay.
+            g_mp9MrHudRefresh.store(true, std::memory_order_release);
+        }
+        if (result.qualityChanged) OpenXRSetRenderScale(snapshot.quality == 0 ? 0.5f : snapshot.quality == 1 ? 0.75f : 1.0f);
+    }
+    return result;
+}
+#endif
 
 // SDL holds its joystick lock for as long as an enumeration takes, and the
 // Bluetooth Wii Remote rescan (F10 > Controller settings > Keep scanning)
@@ -325,7 +390,69 @@ uint32_t InjectedWiiRemoteButtons() {
 
 } // namespace
 
-OpenXRInput::OpenXRInput(OpenXRLogCallback logger) : m_logger(std::move(logger)) {}
+#if defined(MKW_GAME_MP9)
+mp9_mr::Snapshot mp9_mr::Read() noexcept {
+    std::lock_guard lock(g_mp9MrMutex);
+    return g_mp9Mr.state;
+}
+void mp9_mr::SetEnabled(bool enabled) noexcept {
+    std::lock_guard lock(g_mp9MrMutex);
+    g_mp9Mr.state.enabled = enabled;
+    if (!enabled) g_mp9Mr.ResetPose();
+    g_mp9MrSave = true;
+}
+void mp9_mr::ResetPose() noexcept {
+    std::lock_guard lock(g_mp9MrMutex);
+    g_mp9Mr.ResetPose();
+}
+void mp9_mr::SetPresentation(bool stereo, bool room) noexcept {
+    std::lock_guard lock(g_mp9MrMutex);
+    g_mp9Mr.state.stereo = stereo;
+    g_mp9Mr.state.room = room;
+    g_mp9MrSave = true;
+}
+void mp9_mr::PersistPendingSettings() {
+    if (g_mp9MrHudRefresh.exchange(false, std::memory_order_acq_rel))
+        settings_overlay::RefreshVrHudVirtualScreen();
+    mp9_mr::Snapshot state;
+    bool saveQuality = false;
+    {
+        std::lock_guard lock(g_mp9MrMutex);
+        if (!g_mp9MrSave) return;
+        g_mp9MrSave = false;
+        saveQuality = g_mp9MrQualitySave;
+        g_mp9MrQualitySave = false;
+        state = g_mp9Mr.state;
+    }
+    RuntimeConfigFile::Mutable().mp9MixedReality = state.enabled;
+    RuntimeConfigFile::Mutable().mp9MrWidth = state.width;
+    RuntimeConfigFile::Mutable().mp9MrUnits = state.units;
+    RuntimeConfigFile::WriteSetting("mp9_mr", "enabled", state.enabled ? "true" : "false");
+    RuntimeConfigFile::WriteSetting("mp9_mr", "screen_width", std::to_string(state.width));
+    RuntimeConfigFile::WriteSetting("mp9_mr", "units_per_meter", std::to_string(state.units));
+    RuntimeConfigFile::SetVrPassthrough(state.room);
+    OpenXRSetPassthrough(state.room);
+    RuntimeConfigFile::SetVrFlatScreen(!state.stereo);
+    if (saveQuality)
+        RuntimeConfigFile::SetVrRenderScale(state.quality == 0 ? 0.5f : state.quality == 1 ? 0.75f : 1.0f);
+}
+#endif
+
+OpenXRInput::OpenXRInput(OpenXRLogCallback logger) : m_logger(std::move(logger)) {
+#if defined(MKW_GAME_MP9)
+    std::lock_guard lock(g_mp9MrMutex);
+    g_mp9Mr.state.enabled = RuntimeConfigFile::Get().mp9MixedReality.value_or(true);
+    g_mp9Mr.state.width = RuntimeConfigFile::Get().mp9MrWidth.value_or(1.2f);
+    g_mp9Mr.state.units = RuntimeConfigFile::Get().mp9MrUnits.value_or(500.0f);
+    g_mp9Mr.state.stereo = !RuntimeConfigFile::VrFlatScreen();
+    g_mp9Mr.state.room = RuntimeConfigFile::VrPassthrough();
+    const float renderScale = RuntimeConfigFile::VrRenderScale();
+    g_mp9Mr.state.quality = renderScale < 0.625f ? 0 : renderScale < 0.875f ? 1 : 2;
+    if (!mp9_mr::Finite(g_mp9Mr.state.width)) g_mp9Mr.state.width = 1.2f;
+    if (!mp9_mr::Finite(g_mp9Mr.state.units)) g_mp9Mr.state.units = 500.0f;
+    g_mp9Mr.ResetPose();
+#endif
+}
 
 OpenXRInput::~OpenXRInput() {
     Destroy();
@@ -1051,6 +1178,10 @@ void OpenXRInput::Sync(XrTime predicted_display_time, const OpenXRPointerScreen&
             : 0.0f;
     m_last_input_time = input_time;
     std::array<wii_remote::HandInputs, kHands> panel_hands = hands;
+#if defined(MKW_GAME_MP9)
+    const auto mrInput = UpdateMrPlacement(*m_runtime, input_time, m_aim_spaces[1], m_aim_spaces[0], hands, dt_seconds);
+    if (mrInput.withheld) panel_hands = {};
+#endif
     if (Injected("panel")) {
         // The panel button in either controller mode.
         panel_hands[0].secondary = true;
@@ -1068,7 +1199,11 @@ void OpenXRInput::Sync(XrTime predicted_display_time, const OpenXRPointerScreen&
     const settings_panel::Frame panel = m_panel_controls.Update(panel_hands, open, dt_seconds, mode);
     // While the panel has the controllers, and always when they are nothing to
     // the game, the game sees them idle.
-    const bool withheld = panel.withheld || mode == OpenXRControllerMode::None;
+    const bool withheld = panel.withheld || mode == OpenXRControllerMode::None
+#if defined(MKW_GAME_MP9)
+        || mrInput.withheld
+#endif
+        ;
     // Pointer first: the game thread reads it as soon as it sees the panel open.
     PublishSettingsPanel(input_time, settings_panel, panel);
     if (open != was_open) {
@@ -1079,7 +1214,11 @@ void OpenXRInput::Sync(XrTime predicted_display_time, const OpenXRPointerScreen&
     // on release, so the two-thumbstick panel chord never toggles it, and
     // never while the panel has the controllers.
     if (m_first_person_click.Update(hands[1].thumbstick_click, hands[0].thumbstick_click,
-                                    panel.open || panel.withheld)
+                                    panel.open || panel.withheld
+#if defined(MKW_GAME_MP9)
+                                        || mp9_mr::Read().enabled
+#endif
+                                    )
 #if !defined(MKW_GAME_MP9)
         && RuntimeConfigFile::VrFirstPersonToggleClick()
 #endif
@@ -1228,6 +1367,12 @@ void OpenXRInput::PublishWiiRemote(XrTime input_time, const OpenXRPointerScreen&
     OpenXRWiiRemoteSample sample{};
     sample.hold = wii_remote::RemoteButtons(hands[0], hands[1]) | injected_buttons;
     sample.stick = wii_remote::NunchukStick(hands[0]);
+#if defined(MKW_GAME_MP9)
+    const auto tuning = OpenXRGetWiiRemoteTuning();
+    const uint32_t remote_hand = tuning.left_remote ? 0 : 1;
+#else
+    constexpr uint32_t remote_hand = 1;
+#endif
 
     // Left is the Nunchuk, right is the remote.
     std::array<wii_remote::Pose, kHands> aims{};
@@ -1271,6 +1416,15 @@ void OpenXRInput::PublishWiiRemote(XrTime input_time, const OpenXRPointerScreen&
                                   velocity_valid ? &grip_velocity : nullptr, input_time);
         (hand == 0 ? sample.nunchuk_acc : sample.acc) = acc;
     }
+#if defined(MKW_GAME_MP9)
+    if (tuning.left_remote) {
+        sample.acc = sample.nunchuk_acc;
+    }
+    if (aim_valid[remote_hand]) {
+        // Scale motion only: gravity and therefore tilt retain their real values.
+        sample.acc = wii_remote::ScaleKpadMotion(sample.acc, aims[remote_hand].orientation, tuning.motion_gain);
+    }
+#endif
 
     if (withheld) {
         // Waving a controller around the panel must not trick or wheelie.
@@ -1294,14 +1448,18 @@ void OpenXRInput::PublishWiiRemote(XrTime input_time, const OpenXRPointerScreen&
 
     wii_remote::Screen target{};
     wii_remote::ScreenHit hit{};
-    if (screen.valid && aim_valid[1]) {
+    if (screen.valid && aim_valid[remote_hand]) {
         target.pose = ToWiiRemotePose(screen.pose);
         target.half_width = screen.half_width_meters;
         target.half_height = screen.half_height_meters;
-        hit = wii_remote::RaycastScreen(aims[1], target);
+        hit = wii_remote::RaycastScreen(aims[remote_hand], target);
+#if defined(MKW_GAME_MP9)
+        hit.u *= tuning.pointer_gain;
+        hit.v *= tuning.pointer_gain;
+#endif
     }
-    if (screen.valid && aim_valid[1]) {
-        m_horizon = wii_remote::Horizon(aims[1], target);
+    if (screen.valid && aim_valid[remote_hand]) {
+        m_horizon = wii_remote::Horizon(aims[remote_hand], target);
     }
     const wii_remote::ScreenHit pointer = m_pointer.Update(hit, input_time);
     if (pointer.valid) {

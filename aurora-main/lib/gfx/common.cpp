@@ -1836,6 +1836,7 @@ struct RenderInvocation {
   bool encodeTextureBakes = true;
   bool encodeResolves = true;
   bool captureDepth = true;
+  bool tabletop = false;
   // VR cockpit overlay, drawn inside the scene's pass just before the first
   // virtual-screen draw so the 2D layer's depth cannot hide it (see render_stereo_eye).
   const StereoReplayFrame* cockpitFrame = nullptr;
@@ -1868,6 +1869,7 @@ static void render_eye_planned(std::vector<RenderPass>& renderPasses, wgpu::Comm
   const wgpu::TextureView& colorView =
       target.foveatedColorView && plan.renderPasses == 1 ? target.foveatedColorView : target.colorView;
   wgpu::RenderPassEncoder pass;
+  bool firstEyePass = true;
   for (const auto& step : plan.steps) {
     const auto& passInfo = renderPasses[step.pass];
     if (step.begin) {
@@ -1877,14 +1879,15 @@ static void render_eye_planned(std::vector<RenderPass>& renderPasses, wgpu::Comm
       const wgpu::RenderPassColorAttachment colorAttachment{
           .view = colorView,
           .resolveTarget = target.resolveView,
-          .loadOp = step.clearColor ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load,
+          .loadOp = step.clearColor || (invocation.tabletop && firstEyePass)
+                        ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load,
           .storeOp = wgpu::StoreOp::Store,
           .clearValue =
               {
-                  .r = passInfo.clearColorValue.x(),
-                  .g = passInfo.clearColorValue.y(),
-                  .b = passInfo.clearColorValue.z(),
-                  .a = passInfo.clearColorValue.w(),
+                  .r = invocation.tabletop ? 0.0 : passInfo.clearColorValue.x(),
+                  .g = invocation.tabletop ? 0.0 : passInfo.clearColorValue.y(),
+                  .b = invocation.tabletop ? 0.0 : passInfo.clearColorValue.z(),
+                  .a = invocation.tabletop ? 0.0 : passInfo.clearColorValue.w(),
               },
       };
       const wgpu::RenderPassDepthStencilAttachment depthStencilAttachment{
@@ -1905,6 +1908,7 @@ static void render_eye_planned(std::vector<RenderPass>& renderPasses, wgpu::Comm
           .timestampWrites = gpu_timing_pass(timingCategory),
       };
       pass = cmd.BeginRenderPass(&renderPassDescriptor);
+      firstEyePass = false;
     } else {
       // Carry on from the state a fresh render pass starts in: render_pass_impl assumes the whole eye
       // as viewport and scissor, and a clear draw leaves its colour behind as the blend constant.
@@ -1967,6 +1971,7 @@ static void render_impl(std::vector<RenderPass>& renderPasses, wgpu::CommandEnco
   // Eye textures are reused; discard the previous frame's mask, then retain it
   // across guest passes even if the HUD clears or replaces guest depth.
   bool stencilInitialized = false;
+  bool tabletopCleared = false;
   for (u32 i = 0; i < renderPasses.size(); ++i) {
     const auto& passInfo = renderPasses[i];
     if (invocation.replayLastPass >= 0 && i > static_cast<u32>(invocation.replayLastPass)) {
@@ -2008,14 +2013,15 @@ static void render_impl(std::vector<RenderPass>& renderPasses, wgpu::CommandEnco
         wgpu::RenderPassColorAttachment{
             .view = colorView,
             .resolveTarget = resolveView,
-            .loadOp = passInfo.clearColor && !dropCopyClear ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load,
+            .loadOp = (passInfo.clearColor && !dropCopyClear) || (invocation.tabletop && !tabletopCleared)
+                          ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load,
             .storeOp = wgpu::StoreOp::Store,
             .clearValue =
                 {
-                    .r = passInfo.clearColorValue.x(),
-                    .g = passInfo.clearColorValue.y(),
-                    .b = passInfo.clearColorValue.z(),
-                    .a = passInfo.clearColorValue.w(),
+                    .r = invocation.tabletop ? 0.0 : passInfo.clearColorValue.x(),
+                    .g = invocation.tabletop ? 0.0 : passInfo.clearColorValue.y(),
+                    .b = invocation.tabletop ? 0.0 : passInfo.clearColorValue.z(),
+                    .a = invocation.tabletop ? 0.0 : passInfo.clearColorValue.w(),
                 },
         },
     };
@@ -2044,6 +2050,7 @@ static void render_impl(std::vector<RenderPass>& renderPasses, wgpu::CommandEnco
 
     if (stereoStencil) stencilInitialized = true;
     auto pass = cmd.BeginRenderPass(&renderPassDescriptor);
+    tabletopCleared = true;
     render_pass_impl(pass, renderPasses, i, invocation);
     pass.End();
 
@@ -2312,6 +2319,7 @@ void render_stereo_eye(SealedFrame& frame, wgpu::CommandEncoder& cmd, const Ster
                   .encodeTextureBakes = false,
                   .encodeResolves = false,
                   .captureDepth = false,
+                  .tabletop = stereoFrame.tabletop,
                   .cockpitFrame = cockpitActive ? &stereoFrame : nullptr,
                   .cockpitEncoder = &cmd,
                   .cockpitDepth = cockpitDepth,
@@ -2859,12 +2867,15 @@ static void render_pass_impl(const wgpu::RenderPassEncoder& pass, const std::vec
           apply_viewport(fullEyeDraw);
         }
         gx::render(draw.gx, pass, encodeState, renderPasses[idx].requireReadyPipelines, uniformOverride,
-                   overrideTarget && invocation.target->depthFormat == wgpu::TextureFormat::Depth24PlusStencil8
+                   invocation.tabletop && overrideTarget
+                       ? (virtualScreenDraw ? draw.gx.tabletopScreenPipeline : draw.gx.tabletopPipeline)
+                       : overrideTarget && invocation.target->depthFormat == wgpu::TextureFormat::Depth24PlusStencil8
                        ? (virtualScreenDraw ? draw.gx.stereoScreenPipeline : draw.gx.stereoPipeline)
                        : (virtualScreenDraw ? draw.gx.exactScreenDepthPipeline : 0));
       } break;
       case ShaderType::Clear: {
         auto clearDraw = draw.clear;
+        if (invocation.tabletop && overrideTarget) clearDraw.color = {0, 0, 0, 0};
         if (overrideTarget && invocation.target->depthFormat == wgpu::TextureFormat::Depth24PlusStencil8) {
           clearDraw.pipeline = clearDraw.stereoPipeline;
         }
